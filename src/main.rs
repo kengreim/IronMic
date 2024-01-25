@@ -1,11 +1,14 @@
+use crate::stats_models::{ControllerSession, ControllerSessionBuilder};
 use crate::vnas_api::VnasApi;
 use crate::vnas_models::{AllFacilities, AllPositions, Position};
+use chrono::{DateTime, Utc};
 use regex::Regex;
 use reqwest::Error;
 use std::time::Instant;
 use vatsim_utils::live_api::Vatsim;
 use vatsim_utils::models::Controller;
 
+mod stats_models;
 mod vnas_api;
 mod vnas_models;
 
@@ -40,7 +43,7 @@ async fn main() -> Result<(), Error> {
 
     let start = Instant::now();
 
-    let positions_re: Vec<PositionMatcher> = all_artccs
+    let position_matchers: Vec<PositionMatcher> = all_artccs
         .iter()
         .flat_map(|f| f.all_positions())
         .map(|p| PositionMatcher::from(p))
@@ -49,7 +52,7 @@ async fn main() -> Result<(), Error> {
     println!("{}", start.elapsed().as_micros());
     println!("here");
 
-    println!("{}", positions_re.len());
+    println!("{}", position_matchers.len());
     println!("{}", latest_data_result.controllers.len());
 
     for controller in latest_data_result
@@ -58,13 +61,22 @@ async fn main() -> Result<(), Error> {
         .filter(|c| is_active_vnas_controller(c))
     {
         println!("Trying {} with CID {}", controller.callsign, controller.cid);
-        let mut time = Instant::now();
-        for pm in positions_re.as_slice() {
+        let time = Instant::now();
+        for pm in position_matchers.as_slice() {
             if pm.regex.is_match(&controller.callsign) {
                 println!(
                     "Found match for {} - {} with {}",
                     pm.position.name, pm.position.callsign, controller.callsign
                 );
+                let z: ControllerSession = ControllerSessionBuilder::new()
+                    .start_time(
+                        DateTime::parse_from_rfc3339(&controller.logon_time)
+                            .unwrap()
+                            .to_utc(),
+                    )
+                    .build();
+                let d = Utc::now() - z.start_time;
+                println!("{}", d.num_minutes())
             }
         }
         println!("{}", time.elapsed().as_millis());
