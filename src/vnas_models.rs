@@ -1,3 +1,4 @@
+use regex::Regex;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 use serde_json::Value;
@@ -11,6 +12,54 @@ pub struct ArtccRoot {
     pub visibility_centers: Vec<Point>,
     pub aliases_last_updated_at: String,
     pub video_maps: Vec<VideoMap>,
+}
+
+pub trait AllFacilities {
+    fn all_facilities(&self) -> Vec<Facility>;
+}
+
+pub trait AllPositions {
+    fn all_positions(&self) -> Vec<Position>;
+}
+
+impl AllFacilities for ArtccRoot {
+    fn all_facilities(&self) -> Vec<Facility> {
+        self.facility.all_facilities()
+    }
+}
+
+impl AllFacilities for Facility {
+    fn all_facilities(&self) -> Vec<Facility> {
+        if self.child_facilities.is_empty() {
+            vec![self.to_owned()]
+        } else {
+            let mut vec = vec![self.to_owned()];
+            self.child_facilities
+                .iter()
+                .for_each(|f| vec.extend(f.all_facilities()));
+            vec
+        }
+    }
+}
+
+impl AllPositions for ArtccRoot {
+    fn all_positions(&self) -> Vec<Position> {
+        self.facility.all_positions()
+    }
+}
+
+impl AllPositions for Facility {
+    fn all_positions(&self) -> Vec<Position> {
+        if self.child_facilities.is_empty() {
+            self.positions.to_owned()
+        } else {
+            let mut vec = self.positions.to_owned();
+            self.child_facilities
+                .iter()
+                .for_each(|f| vec.extend(f.all_positions()));
+            vec
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -145,6 +194,42 @@ pub struct Position {
     pub frequency: i64,
     pub stars_configuration: Option<PositionStarsConfiguration>,
     pub eram_configuration: Option<PositionEramConfiguration>,
+}
+
+impl Position {
+    pub fn callsign_prefix(&self) -> &str {
+        self.callsign.split('_').next().unwrap()
+    }
+
+    pub fn callsign_infix(&self) -> Option<&str> {
+        let splits = self.callsign.split('_').collect::<Vec<&str>>();
+        if splits.len() >= 3 {
+            Some(splits.get(1).unwrap())
+        } else {
+            None
+        }
+    }
+
+    pub fn callsign_suffix(&self) -> &str {
+        self.callsign
+            .split('_')
+            .collect::<Vec<&str>>()
+            .last()
+            .unwrap()
+    }
+
+    pub fn is_match_for(&self, callsign: &str) -> bool {
+        let prefix_str = self.callsign_prefix();
+        let infix_re = if let Some(infix) = self.callsign_infix() {
+            format!(r"{infix}[1-9]?_")
+        } else {
+            r"([1-9]_)?".to_owned()
+        };
+        let suffix_str = self.callsign_suffix();
+        let re_str = format!("{prefix_str}_{infix_re}{suffix_str}");
+        let re = Regex::new(re_str.as_str()).unwrap();
+        re.is_match(callsign)
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
