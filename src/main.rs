@@ -3,9 +3,9 @@ use crate::vnas_api::VnasApi;
 use crate::vnas_models::{
     AllFacilities, AllPositions, Facility, Position, PositionWithParentFacility,
 };
-use chrono::{DateTime, Utc};
 use regex::Regex;
 use reqwest::Error;
+use std::num::ParseFloatError;
 use std::time::Instant;
 use vatsim_utils::live_api::Vatsim;
 use vatsim_utils::models::Controller;
@@ -65,7 +65,7 @@ async fn main() -> Result<(), Error> {
         println!("Trying {} with CID {}", controller.callsign, controller.cid);
         let time = Instant::now();
         for pm in position_matchers.as_slice() {
-            if pm.is_match(&controller.callsign) {
+            if pm.is_match(&controller) {
                 println!(
                     "Found match for {} - {} parent {} with {}",
                     pm.position.name,
@@ -80,15 +80,15 @@ async fn main() -> Result<(), Error> {
                 //             .to_utc(),
                 //     )
                 //     .build();
-                let q: ControllerSession = ControllerSession::builder()
-                    .start_time(
-                        DateTime::parse_from_rfc3339(&controller.logon_time)
-                            .unwrap()
-                            .to_utc(),
-                    )
-                    .cid(controller.cid)
-                    .build();
-                let d = Utc::now() - q.start_time;
+                // let q: ControllerSession = ControllerSession::builder()
+                //     .start_time(
+                //         DateTime::parse_from_rfc3339(&controller.logon_time)
+                //             .unwrap()
+                //             .to_utc(),
+                //     )
+                //     .cid(controller.cid)
+                //     .build();
+                let q = ControllerSession::try_from((pm, &controller));
             }
         }
         println!("{}", time.elapsed().as_millis());
@@ -121,8 +121,49 @@ pub struct PositionMatcher {
 }
 
 impl PositionMatcher {
-    pub fn is_match(&self, haystack: &str) -> bool {
-        self.regex.is_match(haystack)
+    pub fn is_match(&self, controller: &Controller) -> bool {
+        self.regex.is_match(&controller.callsign)
+            && if let Ok(b) = self.is_freq_match(&controller.frequency) {
+                b
+            } else {
+                false
+            }
+    }
+
+    pub fn is_starred_match(&self, controller: &Controller) -> bool {
+        self.is_match(controller) && self.position.starred
+    }
+
+    fn is_freq_match(&self, vatsim_freq_str: &str) -> Result<bool, ParseFloatError> {
+        let vatsim_freq_f = vatsim_freq_str.parse::<f64>();
+        if let Ok(f) = vatsim_freq_f {
+            let vatsim_freq_i64 = (f * 1e6).round() as i64;
+            Ok(self.position.frequency == vatsim_freq_i64)
+        } else {
+            Err(vatsim_freq_f.unwrap_err())
+        }
+    }
+}
+
+fn single_or_no_match<'a>(
+    matchers: &'a [PositionMatcher],
+    controller: &Controller,
+) -> Option<&'a PositionMatcher> {
+    let mut matched: Vec<&PositionMatcher> = vec![];
+    for matcher in matchers {
+        if matcher.is_match(&controller) {
+            matched.push(matcher);
+        }
+    }
+    if matched.len() == 1 {
+        Some(matched[0])
+    } else {
+        matched.retain(|p| p.position.starred);
+        if matched.len() == 1 {
+            Some(matched[0])
+        } else {
+            None
+        }
     }
 }
 
