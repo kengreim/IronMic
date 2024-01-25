@@ -1,4 +1,4 @@
-use regex::Regex;
+use regex::{Error, Regex};
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 use serde_json::Value;
@@ -219,6 +219,10 @@ impl Position {
     }
 
     pub fn is_match_for(&self, callsign: &str) -> bool {
+        self.match_regex().unwrap().is_match(callsign)
+    }
+
+    pub fn match_regex(&self) -> Result<Regex, Error> {
         let prefix_str = self.callsign_prefix();
         let infix_re = if let Some(infix) = self.callsign_infix() {
             format!(r"{infix}[1-9]?_")
@@ -227,8 +231,7 @@ impl Position {
         };
         let suffix_str = self.callsign_suffix();
         let re_str = format!("{prefix_str}_{infix_re}{suffix_str}");
-        let re = Regex::new(re_str.as_str()).unwrap();
-        re.is_match(callsign)
+        Regex::new(re_str.as_str())
     }
 }
 

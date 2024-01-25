@@ -1,6 +1,10 @@
 use crate::vnas_api::VnasApi;
-use crate::vnas_models::{AllFacilities, AllPositions};
+use crate::vnas_models::{AllFacilities, AllPositions, Position};
+use regex::Regex;
 use reqwest::Error;
+use std::time::Instant;
+use vatsim_utils::live_api::Vatsim;
+use vatsim_utils::models::Controller;
 
 mod vnas_api;
 mod vnas_models;
@@ -21,15 +25,81 @@ async fn main() -> Result<(), Error> {
     // }
 
     let x = VnasApi::new().unwrap();
-    // let y = x.get_all_artccs_data().await;
+    let all_artccs = x.get_all_artccs_data().await?;
     // if let Ok(z) = y {
     //     println!("success")
     // }
+    //
+    // let y = x.get_artcc_data("ZOA").await?;
+    // for z in y.all_positions() {
+    //     println!("{}", z.callsign )
+    // }
 
-    let y = x.get_artcc_data("ZOA").await?;
-    for z in y.all_positions() {
-        println!("{}", z.callsign)
+    let api = Vatsim::new().await.unwrap();
+    let latest_data_result = api.get_v3_data().await.unwrap();
+
+    let start = Instant::now();
+
+    let positions_re: Vec<PositionMatcher> = all_artccs
+        .iter()
+        .flat_map(|f| f.all_positions())
+        .map(|p| PositionMatcher::from(p))
+        .collect();
+
+    println!("{}", start.elapsed().as_micros());
+    println!("here");
+
+    println!("{}", positions_re.len());
+    println!("{}", latest_data_result.controllers.len());
+
+    for controller in latest_data_result
+        .controllers
+        .into_iter()
+        .filter(|c| is_active_vnas_controller(c))
+    {
+        println!("Trying {} with CID {}", controller.callsign, controller.cid);
+        let mut time = Instant::now();
+        for pm in positions_re.as_slice() {
+            if pm.regex.is_match(&controller.callsign) {
+                println!(
+                    "Found match for {} - {} with {}",
+                    pm.position.name, pm.position.callsign, controller.callsign
+                );
+            }
+        }
+        println!("{}", time.elapsed().as_millis());
     }
+    // let online_positions: Vec<&Controller> = latest_data_result
+    //     .controllers
+    //     .iter()
+    //     .filter(|c| flat_positions.iter().any(|p| p.is_match_for(&c.callsign)))
+    //     .collect();
+
+    // let mut positions: Vec<Position> = vec![];
+    // if let Ok(z) = y {
+    //     z.iter().for_each(|a| positions.extend(a.all_positions()))
+    // }
+    //
+    // println!("{}", positions.len());
+    // println!("{}", start.elapsed().as_micros());
 
     Ok(())
+}
+
+pub fn is_active_vnas_controller(c: &Controller) -> bool {
+    c.server == "VIRTUALNAS" && c.facility > 0 && c.frequency != "199.998"
+}
+
+pub struct PositionMatcher {
+    pub position: Position,
+    pub regex: Regex,
+}
+
+impl From<Position> for PositionMatcher {
+    fn from(value: Position) -> Self {
+        PositionMatcher {
+            position: value.clone(),
+            regex: value.match_regex().unwrap().clone(),
+        }
+    }
 }
