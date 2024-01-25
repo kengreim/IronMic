@@ -1,6 +1,8 @@
 use crate::stats_models::{ControllerSession, ControllerSessionBuilder};
 use crate::vnas_api::VnasApi;
-use crate::vnas_models::{AllFacilities, AllPositions, Position};
+use crate::vnas_models::{
+    AllFacilities, AllPositions, Facility, Position, PositionWithParentFacility,
+};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use reqwest::Error;
@@ -45,7 +47,7 @@ async fn main() -> Result<(), Error> {
 
     let position_matchers: Vec<PositionMatcher> = all_artccs
         .iter()
-        .flat_map(|f| f.all_positions())
+        .flat_map(|f| f.all_positions_with_parents())
         .map(|p| PositionMatcher::from(p))
         .collect();
 
@@ -63,20 +65,30 @@ async fn main() -> Result<(), Error> {
         println!("Trying {} with CID {}", controller.callsign, controller.cid);
         let time = Instant::now();
         for pm in position_matchers.as_slice() {
-            if pm.regex.is_match(&controller.callsign) {
+            if pm.is_match(&controller.callsign) {
                 println!(
-                    "Found match for {} - {} with {}",
-                    pm.position.name, pm.position.callsign, controller.callsign
+                    "Found match for {} - {} parent {} with {}",
+                    pm.position.name,
+                    pm.position.callsign,
+                    pm.parent_facility.name,
+                    controller.callsign
                 );
-                let z: ControllerSession = ControllerSessionBuilder::new()
+                // let z: ControllerSession = ControllerSessionBuilder::default()
+                //     .start_time(
+                //         DateTime::parse_from_rfc3339(&controller.logon_time)
+                //             .unwrap()
+                //             .to_utc(),
+                //     )
+                //     .build();
+                let q: ControllerSession = ControllerSession::builder()
                     .start_time(
                         DateTime::parse_from_rfc3339(&controller.logon_time)
                             .unwrap()
                             .to_utc(),
                     )
+                    .cid(controller.cid)
                     .build();
-                let d = Utc::now() - z.start_time;
-                println!("{}", d.num_minutes())
+                let d = Utc::now() - q.start_time;
             }
         }
         println!("{}", time.elapsed().as_millis());
@@ -103,15 +115,23 @@ pub fn is_active_vnas_controller(c: &Controller) -> bool {
 }
 
 pub struct PositionMatcher {
+    pub parent_facility: Facility,
     pub position: Position,
     pub regex: Regex,
 }
 
-impl From<Position> for PositionMatcher {
-    fn from(value: Position) -> Self {
+impl PositionMatcher {
+    pub fn is_match(&self, haystack: &str) -> bool {
+        self.regex.is_match(haystack)
+    }
+}
+
+impl From<PositionWithParentFacility> for PositionMatcher {
+    fn from(value: PositionWithParentFacility) -> Self {
         PositionMatcher {
-            position: value.clone(),
-            regex: value.match_regex().unwrap().clone(),
+            parent_facility: value.parent_facility,
+            position: value.position.clone(),
+            regex: value.position.match_regex().unwrap(),
         }
     }
 }

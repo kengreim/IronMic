@@ -20,6 +20,7 @@ pub trait AllFacilities {
 
 pub trait AllPositions {
     fn all_positions(&self) -> Vec<Position>;
+    fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility>;
 }
 
 impl AllFacilities for ArtccRoot {
@@ -46,6 +47,9 @@ impl AllPositions for ArtccRoot {
     fn all_positions(&self) -> Vec<Position> {
         self.facility.all_positions()
     }
+    fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility> {
+        self.facility.all_positions_with_parents()
+    }
 }
 
 impl AllPositions for Facility {
@@ -60,6 +64,34 @@ impl AllPositions for Facility {
             vec
         }
     }
+
+    fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility> {
+        if self.child_facilities.is_empty() {
+            map_positions_with_parent(&self)
+        } else {
+            let mut vec = map_positions_with_parent(&self);
+            self.child_facilities
+                .iter()
+                .for_each(|f| vec.extend(f.all_positions_with_parents()));
+            vec
+        }
+    }
+}
+
+fn map_positions_with_parent(facility: &Facility) -> Vec<PositionWithParentFacility> {
+    facility
+        .positions
+        .iter()
+        .map(|p| PositionWithParentFacility {
+            parent_facility: facility.clone(),
+            position: p.clone(),
+        })
+        .collect()
+}
+
+pub struct PositionWithParentFacility {
+    pub parent_facility: Facility,
+    pub position: Position,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
