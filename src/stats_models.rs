@@ -1,7 +1,5 @@
-use crate::vnas_models::PositionWithParentFacility;
 use crate::PositionMatcher;
 use chrono::{DateTime, Utc};
-use std::error::Error;
 use std::marker::PhantomData;
 use vatsim_utils::models::Controller;
 
@@ -15,6 +13,7 @@ pub struct ControllerSession<State = Active> {
     pub cid: u64,
     pub facility_id: String,
     pub facility_name: String,
+    pub position_id: Option<String>,
     pub position_callsign: String,
     pub connected_callsign: String,
 }
@@ -28,6 +27,7 @@ impl Default for ControllerSession<Active> {
             cid: Default::default(),
             facility_id: Default::default(),
             facility_name: Default::default(),
+            position_id: None,
             position_callsign: Default::default(),
             connected_callsign: Default::default(),
         }
@@ -51,6 +51,7 @@ impl ControllerSession<Active> {
             cid: self.cid,
             facility_id: self.facility_id,
             facility_name: self.facility_name,
+            position_id: self.position_id,
             position_callsign: self.position_callsign,
             connected_callsign: self.connected_callsign,
         }
@@ -71,6 +72,7 @@ impl TryFrom<(&PositionMatcher, &Controller)> for ControllerSession<Active> {
                 cid: controller.cid,
                 facility_id: matcher.parent_facility.id.to_owned(),
                 facility_name: matcher.parent_facility.name.to_owned(),
+                position_id: Some(matcher.position.id.to_owned()),
                 position_callsign: matcher.position.callsign.to_owned(),
                 connected_callsign: controller.callsign.to_owned(),
             })
@@ -122,35 +124,37 @@ pub struct ControllerSessionBuilder {
 //         Self::new()
 //     }
 // }
-
-pub struct PositionSession<State = Active> {
-    state: PhantomData<State>,
-    pub callsign: String,
-    pub controller_sessions: Vec<ControllerSession>,
-    pub start_time: DateTime<Utc>,
-    pub end_time: Option<DateTime<Utc>>,
-}
-
-impl Default for PositionSession<Active> {
-    fn default() -> Self {
-        Self {
-            state: PhantomData::<Active>,
-            callsign: String::new(),
-            start_time: Utc::now(),
-            end_time: None,
-            controller_sessions: vec![],
-        }
-    }
-}
-
-impl PositionSession<Active> {
-    pub fn end_session(self, end_time: DateTime<Utc>) -> PositionSession<Completed> {
-        PositionSession {
-            state: PhantomData::<Completed>,
-            callsign: self.callsign,
-            controller_sessions: self.controller_sessions,
-            start_time: self.start_time,
-            end_time: Some(end_time),
-        }
-    }
-}
+//
+// pub struct PositionSession<State = Active> {
+//     state: PhantomData<State>,
+//     pub callsign_prefix: String,
+//     pub callsign_suffix: String,
+//     pub controller_sessions: Vec<ControllerSession>,
+//     pub start_time: DateTime<Utc>,
+//     pub end_time: Option<DateTime<Utc>>,
+// }
+//
+// impl Default for PositionSession<Active> {
+//     fn default() -> Self {
+//         Self {
+//             state: PhantomData::<Active>,
+//             callsign_prefix: String::new(),
+//             callsign_suffix: String::new(),
+//             start_time: Utc::now(),
+//             end_time: None,
+//             controller_sessions: vec![],
+//         }
+//     }
+// }
+//
+// impl PositionSession<Active> {
+//     pub fn end_session(self, end_time: DateTime<Utc>) -> PositionSession<Completed> {
+//         PositionSession {
+//             state: PhantomData::<Completed>,
+//             callsign: self.callsign,
+//             controller_sessions: self.controller_sessions,
+//             start_time: self.start_time,
+//             end_time: Some(end_time),
+//         }
+//     }
+// }

@@ -64,33 +64,50 @@ async fn main() -> Result<(), Error> {
     {
         println!("Trying {} with CID {}", controller.callsign, controller.cid);
         let time = Instant::now();
-        for pm in position_matchers.as_slice() {
-            if pm.is_match(&controller) {
-                println!(
-                    "Found match for {} - {} parent {} with {}",
-                    pm.position.name,
-                    pm.position.callsign,
-                    pm.parent_facility.name,
-                    controller.callsign
-                );
-                // let z: ControllerSession = ControllerSessionBuilder::default()
-                //     .start_time(
-                //         DateTime::parse_from_rfc3339(&controller.logon_time)
-                //             .unwrap()
-                //             .to_utc(),
-                //     )
-                //     .build();
-                // let q: ControllerSession = ControllerSession::builder()
-                //     .start_time(
-                //         DateTime::parse_from_rfc3339(&controller.logon_time)
-                //             .unwrap()
-                //             .to_utc(),
-                //     )
-                //     .cid(controller.cid)
-                //     .build();
-                let q = ControllerSession::try_from((pm, &controller));
-            }
+
+        let x = single_or_no_match(&position_matchers, &controller);
+
+        if let Some(pm) = x {
+            let y = ControllerSession::try_from((pm, &controller));
+            println!(
+                "Found match for {} - {} parent {} with {}",
+                pm.position.name,
+                pm.position.callsign,
+                pm.parent_facility.name,
+                controller.callsign
+            )
+        } else {
+            println!("No single match found for {}", controller.callsign)
         }
+
+        //
+        // for pm in position_matchers.as_slice() {
+        //     if pm.is_match(&controller) {
+        //         println!(
+        //             "Found match for {} - {} parent {} with {}",
+        //             pm.position.name,
+        //             pm.position.callsign,
+        //             pm.parent_facility.name,
+        //             controller.callsign
+        //         );
+        //         // let z: ControllerSession = ControllerSessionBuilder::default()
+        //         //     .start_time(
+        //         //         DateTime::parse_from_rfc3339(&controller.logon_time)
+        //         //             .unwrap()
+        //         //             .to_utc(),
+        //         //     )
+        //         //     .build();
+        //         // let q: ControllerSession = ControllerSession::builder()
+        //         //     .start_time(
+        //         //         DateTime::parse_from_rfc3339(&controller.logon_time)
+        //         //             .unwrap()
+        //         //             .to_utc(),
+        //         //     )
+        //         //     .cid(controller.cid)
+        //         //     .build();
+        //         let q = ControllerSession::try_from((pm, &controller));
+        //     }
+        // }
         println!("{}", time.elapsed().as_millis());
     }
     // let online_positions: Vec<&Controller> = latest_data_result
@@ -126,6 +143,7 @@ impl PositionMatcher {
             && if let Ok(b) = self.is_freq_match(&controller.frequency) {
                 b
             } else {
+                dbg!("Error parsing VATSIM freq {}", &controller.frequency);
                 false
             }
     }
@@ -164,6 +182,18 @@ fn single_or_no_match<'a>(
         } else {
             None
         }
+    }
+}
+
+fn all_matches<'a>(
+    matchers: &'a [PositionMatcher],
+    controller: &Controller,
+) -> Option<Vec<&'a PositionMatcher>> {
+    let x: Vec<&PositionMatcher> = matchers.iter().filter(|m| m.is_match(controller)).collect();
+    if x.is_empty() {
+        None
+    } else {
+        Some(x)
     }
 }
 
