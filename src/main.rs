@@ -1,11 +1,13 @@
 use crate::stats_models::ControllerSession;
 use crate::vnas_aggregate_models::{
-    AllFacilities, AllPositions, Callsign, PositionWithParentFacility,
+    AllFacilities, AllPositions, Callsign, FacilityWithTreeInfo, PositionWithParentFacility,
 };
 use crate::vnas_api::VnasApi;
 use crate::vnas_api_models::{Facility, Position};
 use regex::Regex;
 use reqwest::Error;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlx_macros::migrate;
 use std::num::ParseFloatError;
 use std::time::Instant;
 use vatsim_utils::live_api::Vatsim;
@@ -30,23 +32,26 @@ async fn main() -> Result<(), Error> {
     //
     //     println!("{}", body.facility.name)
     // }
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect("postgres://postgres:pw@localhost/ironmic")
+        .await
+        .expect("Error creating db pool");
+
+    let migrate = sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Error with migrations");
 
     let x = VnasApi::new().unwrap();
     let all_artccs = x.get_all_artccs_data().await?;
 
-    for artcc in &all_artccs {
-        let tree = artcc.all_facilities_with_info();
-        for t in &tree {
-            let parent = match &t.parent_facility {
-                Some(p) => &p.name,
-                None => "NO PARENT",
-            };
-            println!(
-                "Facilitiy {} belongs to {} in artcc {}",
-                t.facility.name, parent, t.artcc_root.id
-            )
-        }
-    }
+    let all_facilities_info: Vec<FacilityWithTreeInfo> = all_artccs
+        .iter()
+        .flat_map(|f| f.all_facilities_with_info())
+        .collect();
+
+    println!("Lengtj {}", all_facilities_info.len());
 
     // if let Ok(z) = y {
     //     println!("success")

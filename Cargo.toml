@@ -14,3 +14,4 @@ reqwest = {  version = "0.11.23" , features = ["json", "brotli"] }
 regex = "1.10.3"
 vatsim_utils = "0.4.0"
 chrono = "0.4.32"
+sqlx = { version = "0.7.3", features = [ "runtime-tokio", "tls-native-tls", "postgres", "migrate"] }
