@@ -1,8 +1,9 @@
-use crate::stats_models::{ControllerSession, ControllerSessionBuilder};
-use crate::vnas_api::VnasApi;
-use crate::vnas_models::{
-    AllFacilities, AllPositions, Facility, Position, PositionWithParentFacility,
+use crate::stats_models::ControllerSession;
+use crate::vnas_aggregate_models::{
+    AllFacilities, AllPositions, Callsign, PositionWithParentFacility,
 };
+use crate::vnas_api::VnasApi;
+use crate::vnas_api_models::{Facility, Position};
 use regex::Regex;
 use reqwest::Error;
 use std::num::ParseFloatError;
@@ -11,8 +12,9 @@ use vatsim_utils::live_api::Vatsim;
 use vatsim_utils::models::Controller;
 
 mod stats_models;
+mod vnas_aggregate_models;
 mod vnas_api;
-mod vnas_models;
+mod vnas_api_models;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -31,6 +33,21 @@ async fn main() -> Result<(), Error> {
 
     let x = VnasApi::new().unwrap();
     let all_artccs = x.get_all_artccs_data().await?;
+
+    for artcc in &all_artccs {
+        let tree = artcc.all_facilities_with_info();
+        for t in &tree {
+            let parent = match &t.parent_facility {
+                Some(p) => &p.name,
+                None => "NO PARENT",
+            };
+            println!(
+                "Facilitiy {} belongs to {} in artcc {}",
+                t.facility.name, parent, t.artcc_root.id
+            )
+        }
+    }
+
     // if let Ok(z) = y {
     //     println!("success")
     // }
@@ -202,7 +219,7 @@ impl From<PositionWithParentFacility> for PositionMatcher {
         PositionMatcher {
             parent_facility: value.parent_facility,
             position: value.position.clone(),
-            regex: value.position.match_regex().unwrap(),
+            regex: value.position.build_match_regex().unwrap(),
         }
     }
 }

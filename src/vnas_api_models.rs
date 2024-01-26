@@ -14,86 +14,6 @@ pub struct ArtccRoot {
     pub video_maps: Vec<VideoMap>,
 }
 
-pub trait AllFacilities {
-    fn all_facilities(&self) -> Vec<Facility>;
-}
-
-pub trait AllPositions {
-    fn all_positions(&self) -> Vec<Position>;
-    fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility>;
-}
-
-impl AllFacilities for ArtccRoot {
-    fn all_facilities(&self) -> Vec<Facility> {
-        self.facility.all_facilities()
-    }
-}
-
-impl AllFacilities for Facility {
-    fn all_facilities(&self) -> Vec<Facility> {
-        if self.child_facilities.is_empty() {
-            vec![self.to_owned()]
-        } else {
-            let mut vec = vec![self.to_owned()];
-            self.child_facilities
-                .iter()
-                .for_each(|f| vec.extend(f.all_facilities()));
-            vec
-        }
-    }
-}
-
-impl AllPositions for ArtccRoot {
-    fn all_positions(&self) -> Vec<Position> {
-        self.facility.all_positions()
-    }
-    fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility> {
-        self.facility.all_positions_with_parents()
-    }
-}
-
-impl AllPositions for Facility {
-    fn all_positions(&self) -> Vec<Position> {
-        if self.child_facilities.is_empty() {
-            self.positions.to_owned()
-        } else {
-            let mut vec = self.positions.to_owned();
-            self.child_facilities
-                .iter()
-                .for_each(|f| vec.extend(f.all_positions()));
-            vec
-        }
-    }
-
-    fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility> {
-        if self.child_facilities.is_empty() {
-            map_positions_with_parent(&self)
-        } else {
-            let mut vec = map_positions_with_parent(&self);
-            self.child_facilities
-                .iter()
-                .for_each(|f| vec.extend(f.all_positions_with_parents()));
-            vec
-        }
-    }
-}
-
-fn map_positions_with_parent(facility: &Facility) -> Vec<PositionWithParentFacility> {
-    facility
-        .positions
-        .iter()
-        .map(|p| PositionWithParentFacility {
-            parent_facility: facility.clone(),
-            position: p.clone(),
-        })
-        .collect()
-}
-
-pub struct PositionWithParentFacility {
-    pub parent_facility: Facility,
-    pub position: Position,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FacilityType {
     Artcc,
@@ -226,45 +146,6 @@ pub struct Position {
     pub frequency: i64,
     pub stars_configuration: Option<PositionStarsConfiguration>,
     pub eram_configuration: Option<PositionEramConfiguration>,
-}
-
-impl Position {
-    pub fn callsign_prefix(&self) -> &str {
-        self.callsign.split('_').next().unwrap()
-    }
-
-    pub fn callsign_infix(&self) -> Option<&str> {
-        let splits = self.callsign.split('_').collect::<Vec<&str>>();
-        if splits.len() >= 3 {
-            Some(splits.get(1).unwrap())
-        } else {
-            None
-        }
-    }
-
-    pub fn callsign_suffix(&self) -> &str {
-        self.callsign
-            .split('_')
-            .collect::<Vec<&str>>()
-            .last()
-            .unwrap()
-    }
-
-    pub fn is_match_for(&self, callsign: &str) -> bool {
-        self.match_regex().unwrap().is_match(callsign)
-    }
-
-    pub fn match_regex(&self) -> Result<Regex, Error> {
-        let prefix_str = self.callsign_prefix();
-        let infix_re = if let Some(infix) = self.callsign_infix() {
-            format!(r"{infix}[1-9]?_")
-        } else {
-            r"([1-9]_)?".to_owned()
-        };
-        let suffix_str = self.callsign_suffix();
-        let re_str = format!("{prefix_str}_{infix_re}{suffix_str}");
-        Regex::new(re_str.as_str())
-    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
