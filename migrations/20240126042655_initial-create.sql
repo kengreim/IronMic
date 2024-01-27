@@ -22,8 +22,7 @@ create table if not exists positions (
     callsign_suffix text not null,
     callsign_without_infix text not null,
     frequency integer not null,
-    parent_facility_id text references facilities (id),
-    parent_artcc_id text references artccs (id)
+    parent_facility_id text references facilities (id)
 );
 
 create table if not exists position_sessions (
@@ -42,8 +41,8 @@ create table if not exists position_sessions (
     constraint if_completed_then_endtime_is_not_null check(is_active or (end_time is not null))
 ) partition by list (is_active);
 
-create table active_position_sessions partition of position_sessions for values in (true);
-create table completed_position_sessions partition of position_sessions for values in (false);
+create table if not exists active_position_sessions partition of position_sessions for values in (true);
+create table if not exists completed_position_sessions partition of position_sessions for values in (false);
 
 create table if not exists controller_sessions (
     id integer generated always as identity,
@@ -64,8 +63,8 @@ create table if not exists controller_sessions (
     constraint if_completed_then_endtime_is_not_null check(is_active or (end_time is not null))
 ) partition by list (is_active);
 
-create table active_controller_sessions partition of controller_sessions for values in (true);
-create table completed_controller_sessions partition of controller_sessions for values in (false);
+create table if not exists active_controller_sessions partition of controller_sessions for values in (true);
+create table if not exists completed_controller_sessions partition of controller_sessions for values in (false);
 
 
 

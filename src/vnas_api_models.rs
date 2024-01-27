@@ -2,6 +2,7 @@ use regex::{Error, Regex};
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 use serde_json::Value;
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +22,18 @@ pub enum FacilityType {
     AtctTracon,
     AtctRapcon,
     Atct,
+}
+
+impl Display for FacilityType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FacilityType::Artcc => write!(f, "Artcc"),
+            FacilityType::Tracon => write!(f, "Tracon"),
+            FacilityType::AtctTracon => write!(f, "AtctTracon"),
+            FacilityType::AtctRapcon => write!(f, "AtctRapcon"),
+            FacilityType::Atct => write!(f, "Atct"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

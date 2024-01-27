@@ -4,10 +4,10 @@ use crate::vnas_aggregate_models::{
 };
 use crate::vnas_api::VnasApi;
 use crate::vnas_api_models::{Facility, Position};
+use chrono::DateTime;
 use regex::Regex;
 use reqwest::Error;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::sqlx_macros::migrate;
 use std::num::ParseFloatError;
 use std::time::Instant;
 use vatsim_utils::live_api::Vatsim;
@@ -51,7 +51,61 @@ async fn main() -> Result<(), Error> {
         .flat_map(|f| f.all_facilities_with_info())
         .collect();
 
-    println!("Lengtj {}", all_facilities_info.len());
+    let start = Instant::now();
+    for artcc in all_artccs.iter() {
+        let d = DateTime::parse_from_rfc3339(&artcc.last_updated_at).unwrap();
+
+        let row = sqlx::query("insert into artccs (id, last_updated) values ($1, $2);")
+            .bind(&artcc.id)
+            .bind(d)
+            .execute(&pool)
+            .await
+            .expect("Error inserting");
+    }
+
+    for f in all_facilities_info.iter() {
+        let d = DateTime::parse_from_rfc3339(&f.artcc_root.last_updated_at).unwrap();
+        let parent_facility_id_str = if let Some(s) = &f.parent_facility {
+            Some(&s.id)
+        } else {
+            None
+        };
+
+        let row = sqlx::query("insert into facilities (id, name, type, last_updated, parent_facility_id, parent_artcc_id) values ($1, $2, $3, $4, $5, $6);")
+            .bind(&f.facility.id)
+            .bind(&f.facility.name)
+            .bind(&f.facility.type_field.to_string())
+            .bind(d)
+            .bind(parent_facility_id_str)
+            .bind(&f.artcc_root.id)
+            .execute(&pool)
+            .await
+            .expect("Error inserting");
+    }
+
+    for p in all_artccs
+        .iter()
+        .flat_map(|f| f.all_positions_with_parents())
+    {
+        let row = sqlx::query("insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, parent_facility_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);")
+            .bind(&p.position.id)
+            .bind(&p.position.name)
+            .bind(&p.position.radio_name)
+            .bind(&p.position.callsign)
+            .bind(&p.position.callsign_prefix())
+            .bind(&p.position.callsign_infix())
+            .bind(&p.position.callsign_suffix())
+            .bind(format!("{}_{}", &p.position.callsign_prefix(), &p.position.callsign_suffix()))
+            .bind(&p.position.frequency)
+            .bind(&p.parent_facility.id)
+            .execute(&pool)
+            .await
+            .expect("Error inserting");
+    }
+
+    // sqlx::query("insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, parent_facility_id, parent_artcc_id) select * from unnest
+    println!("DB time in micros {}", start.elapsed().as_micros());
+    println!("Length {}", all_facilities_info.len());
 
     // if let Ok(z) = y {
     //     println!("success")
