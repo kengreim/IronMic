@@ -10,6 +10,7 @@ pub struct ControllerSession<State = Active> {
     state: PhantomData<State>,
     pub start_time: DateTime<Utc>,
     pub end_time: Option<DateTime<Utc>>,
+    pub last_updated: DateTime<Utc>,
     pub cid: u64,
     pub facility_id: String,
     pub facility_name: String,
@@ -24,6 +25,7 @@ impl Default for ControllerSession<Active> {
             state: PhantomData::<Active>,
             start_time: Utc::now(),
             end_time: None,
+            last_updated: Utc::now(),
             cid: Default::default(),
             facility_id: Default::default(),
             facility_name: Default::default(),
@@ -46,8 +48,9 @@ impl ControllerSession<Active> {
             end_time: if end_time.is_some() {
                 end_time
             } else {
-                Some(Utc::now())
+                Some(self.last_updated)
             },
+            last_updated: self.last_updated,
             cid: self.cid,
             facility_id: self.facility_id,
             facility_name: self.facility_name,
@@ -64,11 +67,15 @@ impl TryFrom<(&PositionMatcher, &Controller)> for ControllerSession<Active> {
     fn try_from(
         (matcher, controller): (&PositionMatcher, &Controller),
     ) -> Result<Self, Self::Error> {
-        if let Ok(t) = DateTime::parse_from_rfc3339(&controller.logon_time) {
+        if let (Ok(start), Ok(updated)) = (
+            DateTime::parse_from_rfc3339(&controller.logon_time),
+            DateTime::parse_from_rfc3339(&controller.last_updated),
+        ) {
             Ok(ControllerSession {
                 state: PhantomData::<Active>,
-                start_time: t.to_utc(),
+                start_time: start.to_utc(),
                 end_time: None,
+                last_updated: updated.to_utc(),
                 cid: controller.cid,
                 facility_id: matcher.parent_facility.id.to_owned(),
                 facility_name: matcher.parent_facility.name.to_owned(),

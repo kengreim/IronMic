@@ -22,7 +22,8 @@ create table if not exists positions (
     callsign_suffix text not null,
     callsign_without_infix text not null,
     frequency integer not null,
-    parent_facility_id text references facilities (id)
+    parent_facility_id text references facilities (id),
+    last_updated timestamptz not null
 );
 
 create table if not exists position_sessions (
@@ -65,6 +66,12 @@ create table if not exists controller_sessions (
 
 create table if not exists active_controller_sessions partition of controller_sessions for values in (true);
 create table if not exists completed_controller_sessions partition of controller_sessions for values in (false);
+
+create table if not exists vnas_data_updates (
+    id integer generated always as identity primary key,
+    update_time timestamptz not null,
+    success boolean not null
+);
 
 
 

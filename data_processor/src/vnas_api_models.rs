@@ -1,6 +1,4 @@
-use regex::{Error, Regex};
-use serde_derive::Deserialize;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::{Display, Formatter};
 

@@ -1,0 +1,19 @@
+[package]
+name = "data_processor"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio.workspace = true
+reqwest = {  version = "0.11.23" , features = ["json", "brotli"] }
+regex = "1.10.3"
+vatsim_utils.workspace = true
+chrono.workspace = true
+sqlx = { version = "0.7.3", features = [ "runtime-tokio", "tls-native-tls", "postgres", "migrate", "chrono" ] }
+rsmq_async.workspace = true
+serde.workspace = true
+serde_derive.workspace = true
+serde_json.workspace = true
+shared = { path = "../shared" }

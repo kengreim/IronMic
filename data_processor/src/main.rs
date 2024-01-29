@@ -1,17 +1,17 @@
-use crate::stats_models::ControllerSession;
-use crate::vnas_aggregate_models::{
-    AllFacilities, AllPositions, Callsign, FacilityWithTreeInfo, PositionWithParentFacility,
-};
-use crate::vnas_api::VnasApi;
-use crate::vnas_api_models::{Facility, Position};
 use chrono::DateTime;
 use regex::Regex;
 use reqwest::Error;
 use sqlx::postgres::PgPoolOptions;
+use stats_models::ControllerSession;
 use std::num::ParseFloatError;
 use std::time::Instant;
 use vatsim_utils::live_api::Vatsim;
 use vatsim_utils::models::Controller;
+use vnas_aggregate_models::{
+    AllFacilities, AllPositions, Callsign, FacilityWithTreeInfo, PositionWithParentFacility,
+};
+use vnas_api::VnasApi;
+use vnas_api_models::{Facility, Position};
 
 mod stats_models;
 mod vnas_aggregate_models;
@@ -20,18 +20,6 @@ mod vnas_api_models;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // let artccs = vec!["ZAB", "ZMA", "ZOA", "ZHU", "ZBW", "ZDV", "ZID", "ZKC", "ZLA", "ZME", "ZMP", "ZFW", "ZAN", "ZUA", "ZJX", "ZSE", "ZNY", "ZAU", "ZDC", "ZLC", "ZOB", "ZTL", "ZSU", "ZHN"];
-    //
-    // for artcc in artccs {
-    //     let url = format!("https://data-api.vnas.vatsim.net/api/artccs/{artcc}");
-    //     println!("Trying {}", url);
-    //     let body = get(url)
-    //         .await?
-    //         .json::<ArtccRoot>()
-    //         .await?;
-    //
-    //     println!("{}", body.facility.name)
-    // }
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect("postgres://postgres:pw@localhost/ironmic")
@@ -106,15 +94,6 @@ async fn main() -> Result<(), Error> {
     // sqlx::query("insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, parent_facility_id, parent_artcc_id) select * from unnest
     println!("DB time in micros {}", start.elapsed().as_micros());
     println!("Length {}", all_facilities_info.len());
-
-    // if let Ok(z) = y {
-    //     println!("success")
-    // }
-    //
-    // let y = x.get_artcc_data("ZOA").await?;
-    // for z in y.all_positions() {
-    //     println!("{}", z.callsign )
-    // }
 
     let api = Vatsim::new().await.unwrap();
     let latest_data_result = api.get_v3_data().await.unwrap();
