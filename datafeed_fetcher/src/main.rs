@@ -27,7 +27,7 @@ async fn main() {
         .create_queue(shared::DATAFEED_QUEUE_NAME, None, None, None)
         .await
     {
-        todo!()
+        println!("error creating queue")
     }
 
     // Datafetcher infinite loop
@@ -51,7 +51,7 @@ async fn main() {
         }
 
         // Update timestamp of latest data and process datafeed
-        last_datafeed_update = latest_data.general.update.to_owned();
+        last_datafeed_update = latest_data.general.update.clone();
 
         // Send message to Redis with Controllers JSON
         let sent = rsmq
@@ -64,6 +64,7 @@ async fn main() {
         if let Err(e) = sent {
             todo!()
         }
+        println!("Sent to Redis");
 
         // Sleep for 15 seconds minus the time this loop took
         let sleep_duration = Duration::from_secs(15) - (Instant::now() - start);

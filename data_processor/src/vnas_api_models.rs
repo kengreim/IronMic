@@ -1,4 +1,5 @@
-use serde_derive::{Deserialize, Serialize};
+use chrono::{DateTime, NaiveDateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::{Display, Formatter};
 
@@ -6,10 +7,10 @@ use std::fmt::{Display, Formatter};
 #[serde(rename_all = "camelCase")]
 pub struct ArtccRoot {
     pub id: String,
-    pub last_updated_at: String,
+    pub last_updated_at: DateTime<Utc>,
     pub facility: Facility,
     pub visibility_centers: Vec<Point>,
-    pub aliases_last_updated_at: String,
+    pub aliases_last_updated_at: DateTime<Utc>,
     pub video_maps: Vec<VideoMap>,
 }
 
@@ -465,7 +466,7 @@ pub struct VideoMap {
     pub tags: Vec<String>,
     pub short_name: Option<String>,
     pub source_file_name: String,
-    pub last_updated_at: String,
+    pub last_updated_at: DateTime<Utc>,
     pub stars_brightness_category: String,
     pub stars_id: Option<i16>,
     pub stars_always_visible: bool,

@@ -67,7 +67,7 @@ create table if not exists controller_sessions (
 create table if not exists active_controller_sessions partition of controller_sessions for values in (true);
 create table if not exists completed_controller_sessions partition of controller_sessions for values in (false);
 
-create table if not exists vnas_data_updates (
+create table if not exists vnas_fetch_records (
     id integer generated always as identity primary key,
     update_time timestamptz not null,
     success boolean not null
