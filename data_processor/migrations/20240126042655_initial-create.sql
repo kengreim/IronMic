@@ -27,17 +27,14 @@ create table if not exists positions (
 );
 
 create table if not exists position_sessions (
-    id integer generated always as identity,
+    id uuid not null,
     start_time timestamptz not null,
     end_time timestamptz,
     last_updated timestamptz not null,
     is_active boolean not null,
-    cid integer not null,
     facility_id text not null,
     facility_name text not null,
-    position_id text,
-    position_callsign text not null,
-    connected_callsign text not null,
+    position_simple_callsign text not null,
     primary key (id, is_active),
     constraint if_completed_then_endtime_is_not_null check(is_active or (end_time is not null))
 ) partition by list (is_active);
@@ -46,18 +43,16 @@ create table if not exists active_position_sessions partition of position_sessio
 create table if not exists completed_position_sessions partition of position_sessions for values in (false);
 
 create table if not exists controller_sessions (
-    id integer generated always as identity,
+    id uuid not null,
     start_time timestamptz not null,
     end_time timestamptz,
     last_updated timestamptz not null,
     is_active boolean not null,
     cid integer not null,
-    facility_id text not null,
-    facility_name text not null,
     position_id text,
-    position_callsign text not null,
+    position_simple_callsign text not null,
     connected_callsign text not null,
-    position_session_id integer not null,
+    position_session_id uuid not null,
     position_session_is_active boolean not null,
     primary key (id, is_active),
     foreign key (position_session_id, position_session_is_active) references position_sessions on update cascade,
@@ -72,6 +67,3 @@ create table if not exists vnas_fetch_records (
     update_time timestamptz not null,
     success boolean not null
 );
-
-
-

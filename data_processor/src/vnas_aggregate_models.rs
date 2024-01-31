@@ -1,5 +1,6 @@
 use crate::vnas_api_models::{ArtccRoot, Facility, Position};
 use regex::{Error, Regex};
+use vatsim_utils::models::Controller;
 
 pub trait AllFacilities {
     fn all_facilities(&self) -> Vec<Facility>;
@@ -126,6 +127,7 @@ pub trait Callsign {
     fn callsign_prefix(&self) -> &str;
     fn callsign_infix(&self) -> Option<&str>;
     fn callsign_suffix(&self) -> &str;
+    fn simple_callsign(&self) -> String;
     fn is_match_for(&self, callsign: &str) -> bool;
     fn build_match_regex(&self) -> Result<Regex, Error>;
 }
@@ -152,19 +154,62 @@ impl Callsign for Position {
             .unwrap()
     }
 
+    fn simple_callsign(&self) -> String {
+        format!("{}_{}", self.callsign_prefix(), self.callsign_suffix())
+    }
+
     fn is_match_for(&self, callsign: &str) -> bool {
         self.build_match_regex().unwrap().is_match(callsign)
     }
 
     fn build_match_regex(&self) -> Result<Regex, Error> {
         let prefix_str = self.callsign_prefix();
-        let infix_re = if let Some(infix) = self.callsign_infix() {
-            format!(r"{infix}[1-9]?_")
-        } else {
-            r"([1-9]_)?".to_owned()
+        let infix_re = match self.callsign_infix() {
+            Some(infix) => format!(r"{infix}[1-9]?_"),
+            None => r"([1-9]_)?".to_owned(),
         };
         let suffix_str = self.callsign_suffix();
-        let re_str = format!("{prefix_str}_{infix_re}{suffix_str}");
-        Regex::new(re_str.as_str())
+        Regex::new(format!("{prefix_str}_{infix_re}{suffix_str}").as_str())
+    }
+}
+
+impl Callsign for Controller {
+    fn callsign_prefix(&self) -> &str {
+        self.callsign.split('_').next().unwrap()
+    }
+
+    fn callsign_infix(&self) -> Option<&str> {
+        let splits = self.callsign.split('_').collect::<Vec<&str>>();
+        if splits.len() >= 3 {
+            Some(splits.get(1).unwrap())
+        } else {
+            None
+        }
+    }
+
+    fn callsign_suffix(&self) -> &str {
+        self.callsign
+            .split('_')
+            .collect::<Vec<&str>>()
+            .last()
+            .unwrap()
+    }
+
+    fn simple_callsign(&self) -> String {
+        format!("{}_{}", self.callsign_prefix(), self.callsign_suffix())
+    }
+
+    fn is_match_for(&self, callsign: &str) -> bool {
+        self.build_match_regex().unwrap().is_match(callsign)
+    }
+
+    fn build_match_regex(&self) -> Result<Regex, Error> {
+        let prefix_str = self.callsign_prefix();
+        let infix_re = match self.callsign_infix() {
+            Some(infix) => format!(r"{infix}[1-9]?_"),
+            None => r"([1-9]_)?".to_owned(),
+        };
+        let suffix_str = self.callsign_suffix();
+        Regex::new(format!("{prefix_str}_{infix_re}{suffix_str}").as_str())
     }
 }
