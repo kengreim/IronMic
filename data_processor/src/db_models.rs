@@ -1,8 +1,5 @@
-use crate::matchers::PositionMatcher;
-use crate::vnas_aggregate_models::Callsign;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use vatsim_utils::models::Controller;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct VnasFetchRecord {

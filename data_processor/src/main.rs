@@ -1,3 +1,9 @@
+use crate::database::{
+    db_get_active_controller_sessions, db_get_active_position_sessions,
+    db_update_active_controller_session, db_update_active_position_session,
+    db_update_ended_controller_session, db_update_ended_position_session, db_update_vnas_artcc,
+    db_update_vnas_facility, db_update_vnas_position,
+};
 use crate::db_models::{ControllerSession, PositionSession};
 use crate::matchers::{all_matches, PositionMatcher};
 use crate::stats_models::{ControllerSessionTracker, PositionSessionTracker};
@@ -6,19 +12,17 @@ use chrono::{DateTime, Utc};
 use db_models::{Artcc, VnasFetchRecord};
 use futures::future::join_all;
 use matchers::single_or_no_match;
-use regex::Regex;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
 use sqlx::migrate::MigrateError;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
-use std::num::ParseFloatError;
 use uuid::Uuid;
 use vatsim_utils::models::Controller;
-use vnas_aggregate_models::{AllFacilities, AllPositions, Callsign, PositionWithParentFacility};
+use vnas_aggregate_models::{AllFacilities, AllPositions, Callsign};
 use vnas_api::VnasApi;
-use vnas_api_models::{Facility, Position};
 
+mod database;
 mod db_models;
 mod matchers;
 mod stats_models;
@@ -80,101 +84,19 @@ fn should_update_artcc(new_fetched_artcc: &ArtccRoot, existing_db_artccs: &[Artc
 
 async fn update_artcc_in_db(pool: &Pool<Postgres>, artcc: &ArtccRoot) -> Result<(), sqlx::Error> {
     // Insert or update Artcc root
-    sqlx::query(
-        r"
-        insert into artccs (id, last_updated)
-        values ($1, $2)
-        on conflict (id) do update set
-            last_updated = excluded.last_updated;
-        ",
-    )
-    .bind(&artcc.id)
-    .bind(&artcc.last_updated_at)
-    .execute(pool)
-    .await?;
+    db_update_vnas_artcc(pool, &artcc).await?;
 
     // Insert or update all Facilities in Artcc
     for f in artcc.all_facilities_with_info() {
-        sqlx::query(
-            r"
-            insert into facilities (id, name, type, last_updated, parent_facility_id, parent_artcc_id)
-            values ($1, $2, $3, $4, $5, $6)
-            on conflict (id) do update set
-                name = excluded.name,
-                type = excluded.type,
-                last_updated = excluded.last_updated,
-                parent_facility_id = excluded.parent_facility_id,
-                parent_artcc_id = excluded.parent_artcc_id;
-            ")
-            .bind(&f.facility.id)
-            .bind(&f.facility.name)
-            .bind(&f.facility.type_field.to_string())
-            .bind(&f.artcc_root.last_updated_at)
-            .bind(&f.parent_facility.map(|p| p.id))
-            .bind(&f.artcc_root.id)
-            .execute(pool)
-            .await?;
+        db_update_vnas_facility(pool, &f).await?;
     }
 
     // Insert or update all Positions in Artcc
     for p in artcc.all_positions_with_parents() {
-        sqlx::query(
-            r"
-            insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, parent_facility_id, last_updated)
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            on conflict (id) do update set
-                name = excluded.name,
-                radio_name = excluded.radio_name,
-                callsign = excluded.callsign,
-                callsign_prefix = excluded.callsign_prefix,
-                callsign_infix = excluded.callsign_infix,
-                callsign_suffix = excluded.callsign_suffix,
-                callsign_without_infix = excluded.callsign_without_infix,
-                frequency = excluded.frequency,
-                parent_facility_id = excluded.parent_facility_id,
-                last_updated = excluded.last_updated;
-            ")
-            .bind(&p.position.id)
-            .bind(&p.position.name)
-            .bind(&p.position.radio_name)
-            .bind(&p.position.callsign)
-            .bind(&p.position.callsign_prefix())
-            .bind(&p.position.callsign_infix())
-            .bind(&p.position.callsign_suffix())
-            .bind(format!("{}_{}", &p.position.callsign_prefix(), &p.position.callsign_suffix()))
-            .bind(&p.position.frequency)
-            .bind(&p.parent_facility.id)
-            .bind(&artcc.last_updated_at)
-            .execute(pool)
-            .await?;
+        db_update_vnas_position(pool, &p, artcc).await?;
     }
 
-    //println!("Finished {}", artcc.id);
-
     Ok(())
-}
-
-async fn get_active_controller_sessions_from_db(
-    pool: &Pool<Postgres>,
-) -> Result<Vec<db_models::ControllerSession>, sqlx::Error> {
-    let db_sessions = sqlx::query_as::<_, db_models::ControllerSession>(
-        "select * from active_controller_sessions;",
-    )
-    .fetch_all(pool)
-    .await?;
-
-    Ok(db_sessions)
-}
-
-async fn get_active_position_sessions_from_db(
-    pool: &Pool<Postgres>,
-) -> Result<Vec<db_models::PositionSession>, sqlx::Error> {
-    let db_sessions =
-        sqlx::query_as::<_, db_models::PositionSession>("select * from active_position_sessions;")
-            .fetch_all(pool)
-            .await?;
-
-    Ok(db_sessions)
 }
 
 async fn update_all_artccs_in_db(
@@ -188,7 +110,7 @@ async fn update_all_artccs_in_db(
         .fetch_optional(pool)
         .await?;
 
-    // Update if we've never initialized DB or haven't done it in 24 hours
+    // Update if we've never initialized DB or haven't done it in 24 hours or we want to force update
     if latest_record.is_none()
         || (Utc::now() - latest_record.unwrap().update_time)
             > chrono::Duration::seconds(60 * 60 * 24)
@@ -339,19 +261,18 @@ async fn process_datafeed(
     //      - If not tagged active, mark ended
     // Write all positions and controller sessions to DB (including active / not active state)
 
-    let mut active_controller_sessions: HashMap<_, _> =
-        get_active_controller_sessions_from_db(pool)
-            .await?
-            .into_iter()
-            .map(|c| {
-                (
-                    format!("{} {}", c.cid, c.start_time.timestamp()),
-                    ControllerSessionTracker::new(c),
-                )
-            })
-            .collect();
+    let mut active_controller_sessions: HashMap<_, _> = db_get_active_controller_sessions(pool)
+        .await?
+        .into_iter()
+        .map(|c| {
+            (
+                format!("{} {}", c.cid, c.start_time.timestamp()),
+                ControllerSessionTracker::new(c),
+            )
+        })
+        .collect();
 
-    let mut active_position_sessions: HashMap<_, _> = get_active_position_sessions_from_db(pool)
+    let mut active_position_sessions: HashMap<_, _> = db_get_active_position_sessions(pool)
         .await?
         .into_iter()
         .map(|p| {
@@ -476,43 +397,9 @@ async fn process_datafeed(
     for mut p in active_position_sessions.into_values() {
         if !p.marked_active {
             let _ = p.try_end_session(None);
-
-            // TODO -- do something different for changing active state
-            sqlx::query(
-                r"
-                update position_sessions set
-                    is_active = $2,
-                    end_time = $3,
-                    last_updated = $4
-                where id = $1;
-            ",
-            )
-            .bind(&p.position_session.id)
-            .bind(&p.position_session.is_active)
-            .bind(&p.position_session.end_time)
-            .bind(&p.position_session.last_updated)
-            .execute(pool)
-            .await?;
+            db_update_ended_position_session(pool, &p).await?;
         } else {
-            sqlx::query(
-                r"
-                insert into position_sessions (id, start_time, end_time, last_updated, is_active, facility_id, facility_name, position_simple_callsign)
-                values ($1, $2, $3, $4, $5, $6, $7, $8)
-                on conflict (id, is_active) do update set
-                    end_time = excluded.end_time,
-                    last_updated = excluded.last_updated,
-                    is_active = excluded.is_active;
-            ")
-                .bind(&p.position_session.id)
-                .bind(&p.position_session.start_time)
-                .bind(&p.position_session.end_time)
-                .bind(&p.position_session.last_updated)
-                .bind(&p.position_session.is_active)
-                .bind(&p.position_session.facility_id)
-                .bind(&p.position_session.facility_name)
-                .bind(&p.position_session.position_simple_callsign)
-                .execute(pool)
-                .await?;
+            db_update_active_position_session(pool, &p).await?;
         }
     }
 
@@ -520,46 +407,9 @@ async fn process_datafeed(
     for mut c in active_controller_sessions.into_values() {
         if !c.marked_active {
             let _ = c.try_end_session(None);
-
-            // TODO -- do something different for changing active state
-            sqlx::query(
-                r"
-                update controller_sessions set
-                    is_active = $2,
-                    end_time = $3,
-                    last_updated = $4
-                where id = $1;
-            ",
-            )
-            .bind(&c.controller_session.id)
-            .bind(&c.controller_session.is_active)
-            .bind(&c.controller_session.end_time)
-            .bind(&c.controller_session.last_updated)
-            .execute(pool)
-            .await?;
+            db_update_ended_controller_session(pool, &c).await?;
         } else {
-            sqlx::query(
-                r"
-                insert into controller_sessions (id, start_time, end_time, last_updated, is_active, cid, position_id, position_simple_callsign, connected_callsign, position_session_id, position_session_is_active)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                on conflict (id, is_active) do update set
-                    end_time = excluded.end_time,
-                    last_updated = excluded.last_updated,
-                    is_active = excluded.is_active;
-            ")
-                .bind(&c.controller_session.id)
-                .bind(&c.controller_session.start_time)
-                .bind(&c.controller_session.end_time)
-                .bind(&c.controller_session.last_updated)
-                .bind(&c.controller_session.is_active)
-                .bind(&c.controller_session.cid)
-                .bind(&c.controller_session.position_id)
-                .bind(&c.controller_session.position_simple_callsign)
-                .bind(&c.controller_session.connected_callsign)
-                .bind(&c.controller_session.position_session_id)
-                .bind(&c.controller_session.position_session_is_active)
-                .execute(pool)
-                .await?;
+            db_update_active_controller_session(pool, &c).await?;
         }
     }
 
@@ -585,8 +435,6 @@ fn create_new_controller_session_tracker(
             last_updated: last_updated.to_utc(),
             is_active: true,
             cid: datafeed_controller.cid as i32,
-            //facility_id: matcher.parent_facility.id.to_owned(),
-            //facility_name: matcher.parent_facility.name.to_owned(),
             position_id,
             position_simple_callsign: assoc_position.position_simple_callsign.to_owned(),
             connected_callsign: datafeed_controller.callsign.to_owned(),
@@ -627,9 +475,6 @@ fn create_new_position_session_tracker(
                     end_time: None,
                     last_updated: last_updated.to_utc(),
                     is_active: true,
-                    //cid: datafeed_controller.cid as i32,
-                    //facility_id: matcher.parent_facility.id.to_owned(),
-                    //facility_name: matcher.parent_facility.name.to_owned(),
                     facility_id: facility_hashmap
                         .get(facility_hashmap_key)
                         .unwrap()
@@ -662,188 +507,3 @@ fn create_new_position_session_tracker(
 pub fn is_active_vnas_controller(c: &Controller) -> bool {
     c.server == "VIRTUALNAS" && c.facility > 0 && c.frequency != "199.998"
 }
-
-// //
-// //     for datafeed_controller in datafeed_controllers {
-// //         if let Some(mut position_tracker) =
-// //             existing_active_position_sessions.get(datafeed_controller.simple_callsign())
-// //         {
-// //             // Mark position as still active
-// //             position_tracker.mark_active();
-// //
-// //             // If controller exists in position, update and mark as active
-// //             if let Some(controller_session) =
-// //                 position_tracker.find_controller_session(datafeed_controller)
-// //             {
-// //                 controller_session.last_updated = datafeed_controller.last_updated;
-// //             }
-// //
-// //             // If controller doesn't exist in position, create new controller and add to position. Mark controller as still active
-// //         } else {
-// //             // Create new position session, and add controller, and add to hashmap
-// //         }
-// //     }
-// // }
-//
-// // async fn main() -> Result<(), Error> {
-// //     let pool = PgPoolOptions::new()
-// //         .max_connections(5)
-// //         .connect("postgres://postgres:pw@localhost/ironmic")
-// //         .await
-// //         .expect("Error creating db pool");
-// //
-// //     let migrate = sqlx::migrate!("./migrations")
-// //         .run(&pool)
-// //         .await
-// //         .expect("Error with migrations");
-// //
-// //     let x = VnasApi::new().unwrap();
-// //     let all_artccs = x.get_all_artccs_data().await?;
-// //
-// //     let all_facilities_info: Vec<FacilityWithTreeInfo> = all_artccs
-// //         .iter()
-// //         .flat_map(|f| f.all_facilities_with_info())
-// //         .collect();
-// //
-// //     let start = Instant::now();
-// //     for artcc in all_artccs.iter() {
-// //         let d = DateTime::parse_from_rfc3339(&artcc.last_updated_at).unwrap();
-// //
-// //         let row = sqlx::query("insert into artccs (id, last_updated) values ($1, $2);")
-// //             .bind(&artcc.id)
-// //             .bind(d)
-// //             .execute(&pool)
-// //             .await
-// //             .expect("Error inserting");
-// //     }
-// //
-// //     for f in all_facilities_info.iter() {
-// //         let d = DateTime::parse_from_rfc3339(&f.artcc_root.last_updated_at).unwrap();
-// //         let parent_facility_id_str = if let Some(s) = &f.parent_facility {
-// //             Some(&s.id)
-// //         } else {
-// //             None
-// //         };
-// //
-// //         let row = sqlx::query("insert into facilities (id, name, type, last_updated, parent_facility_id, parent_artcc_id) values ($1, $2, $3, $4, $5, $6);")
-// //             .bind(&f.facility.id)
-// //             .bind(&f.facility.name)
-// //             .bind(&f.facility.type_field.to_string())
-// //             .bind(d)
-// //             .bind(parent_facility_id_str)
-// //             .bind(&f.artcc_root.id)
-// //             .execute(&pool)
-// //             .await
-// //             .expect("Error inserting");
-// //     }
-// //
-// //     for p in all_artccs
-// //         .iter()
-// //         .flat_map(|f| f.all_positions_with_parents())
-// //     {
-// //         let row = sqlx::query("insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, parent_facility_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);")
-// //             .bind(&p.position.id)
-// //             .bind(&p.position.name)
-// //             .bind(&p.position.radio_name)
-// //             .bind(&p.position.callsign)
-// //             .bind(&p.position.callsign_prefix())
-// //             .bind(&p.position.callsign_infix())
-// //             .bind(&p.position.callsign_suffix())
-// //             .bind(format!("{}_{}", &p.position.callsign_prefix(), &p.position.callsign_suffix()))
-// //             .bind(&p.position.frequency)
-// //             .bind(&p.parent_facility.id)
-// //             .execute(&pool)
-// //             .await
-// //             .expect("Error inserting");
-// //     }
-// //
-// //     // sqlx::query("insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, parent_facility_id, parent_artcc_id) select * from unnest
-// //     println!("DB time in micros {}", start.elapsed().as_micros());
-// //     println!("Length {}", all_facilities_info.len());
-// //
-// //     let api = Vatsim::new().await.unwrap();
-// //     let latest_data_result = api.get_v3_data().await.unwrap();
-// //
-// //     let start = Instant::now();
-// //
-// //     let position_matchers: Vec<PositionMatcher> = all_artccs
-// //         .iter()
-// //         .flat_map(|f| f.all_positions_with_parents())
-// //         .map(|p| PositionMatcher::from(p))
-// //         .collect();
-// //
-// //     println!("{}", start.elapsed().as_micros());
-// //     println!("here");
-// //
-// //     println!("{}", position_matchers.len());
-// //     println!("{}", latest_data_result.controllers.len());
-// //
-// //     for controller in latest_data_result
-// //         .controllers
-// //         .into_iter()
-// //         .filter(|c| is_active_vnas_controller(c))
-// //     {
-// //         println!("Trying {} with CID {}", controller.callsign, controller.cid);
-// //         let time = Instant::now();
-// //
-// //         let x = single_or_no_match(&position_matchers, &controller);
-// //
-// //         if let Some(pm) = x {
-// //             let y = ControllerSession::try_from((pm, &controller));
-// //             println!(
-// //                 "Found match for {} - {} parent {} with {}",
-// //                 pm.position.name,
-// //                 pm.position.callsign,
-// //                 pm.parent_facility.name,
-// //                 controller.callsign
-// //             )
-// //         } else {
-// //             println!("No single match found for {}", controller.callsign)
-// //         }
-// //
-// //         //
-// //         // for pm in position_matchers.as_slice() {
-// //         //     if pm.is_match(&controller) {
-// //         //         println!(
-// //         //             "Found match for {} - {} parent {} with {}",
-// //         //             pm.position.name,
-// //         //             pm.position.callsign,
-// //         //             pm.parent_facility.name,
-// //         //             controller.callsign
-// //         //         );
-// //         //         // let z: ControllerSession = ControllerSessionBuilder::default()
-// //         //         //     .start_time(
-// //         //         //         DateTime::parse_from_rfc3339(&controller.logon_time)
-// //         //         //             .unwrap()
-// //         //         //             .to_utc(),
-// //         //         //     )
-// //         //         //     .build();
-// //         //         // let q: ControllerSession = ControllerSession::builder()
-// //         //         //     .start_time(
-// //         //         //         DateTime::parse_from_rfc3339(&controller.logon_time)
-// //         //         //             .unwrap()
-// //         //         //             .to_utc(),
-// //         //         //     )
-// //         //         //     .cid(controller.cid)
-// //         //         //     .build();
-// //         //         let q = ControllerSession::try_from((pm, &controller));
-// //         //     }
-// //         // }
-// //         println!("{}", time.elapsed().as_millis());
-// //     }
-// //     // let online_positions: Vec<&Controller> = latest_data_result
-// //     //     .controllers
-// //     //     .iter()
-// //     //     .filter(|c| flat_positions.iter().any(|p| p.is_match_for(&c.callsign)))
-// //     //     .collect();
-// //
-// //     // let mut positions: Vec<Position> = vec![];
-// //     // if let Ok(z) = y {
-// //     //     z.iter().for_each(|a| positions.extend(a.all_positions()))
-// //     // }
-// //     //
-// //     // println!("{}", positions.len());
-// //     // println!("{}", start.elapsed().as_micros());
-// //
-// //     Ok(())
-// // }

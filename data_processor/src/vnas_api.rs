@@ -17,17 +17,17 @@ impl VnasApi {
         })
     }
 
-    pub async fn get_artcc_data(&self, artcc_id: &str) -> Result<ArtccRoot, Error> {
-        let url = format!("{}{}{}", self.base_url, "/artccs/", artcc_id);
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await?
-            .json::<ArtccRoot>()
-            .await?;
-        Ok(response)
-    }
+    // pub async fn get_artcc_data(&self, artcc_id: &str) -> Result<ArtccRoot, Error> {
+    //     let url = format!("{}{}{}", self.base_url, "/artccs/", artcc_id);
+    //     let response = self
+    //         .client
+    //         .get(url)
+    //         .send()
+    //         .await?
+    //         .json::<ArtccRoot>()
+    //         .await?;
+    //     Ok(response)
+    // }
 
     pub async fn get_all_artccs_data(&self) -> Result<Vec<ArtccRoot>, Error> {
         let url = format!("{}{}", self.base_url, "/artccs/");
