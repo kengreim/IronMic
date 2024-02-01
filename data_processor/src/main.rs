@@ -10,6 +10,7 @@ use crate::stats_models::{ControllerSessionTracker, PositionSessionTracker};
 use crate::vnas_api_models::ArtccRoot;
 use chrono::{DateTime, Utc};
 use db_models::{Artcc, VnasFetchRecord};
+use flate2::read::{DeflateDecoder, GzDecoder};
 use futures::future::join_all;
 use matchers::single_or_no_match;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
@@ -17,9 +18,10 @@ use sqlx::migrate::MigrateError;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
+use std::io::{Error, Read};
 use uuid::Uuid;
 use vatsim_utils::models::Controller;
-use vnas_aggregate_models::{AllFacilities, AllPositions, Callsign};
+use vnas_aggregate_models::{AllPositions, Callsign};
 use vnas_api::VnasApi;
 
 mod database;
@@ -193,7 +195,7 @@ async fn main() {
     };
 
     while let msg = rsmq
-        .receive_message::<String>(shared::DATAFEED_QUEUE_NAME, None)
+        .receive_message::<Vec<u8>>(shared::DATAFEED_QUEUE_NAME, None)
         .await
     {
         if let Err(e) = &msg {
@@ -202,7 +204,9 @@ async fn main() {
         }
 
         if let Some(message) = msg.unwrap() {
-            let controllers: Vec<Controller> = serde_json::from_str(&message.message).unwrap(); // TODO -- strengthen parsing safety
+            let decompressed = gzip_decompress(&message.message).unwrap(); // todo strengthen parsing safety
+
+            let controllers: Vec<Controller> = serde_json::from_str(&decompressed).unwrap(); // TODO -- strengthen parsing safety
             let vnas_controllers: Vec<&Controller> = controllers
                 .iter()
                 .filter(|c| is_active_vnas_controller(c))
@@ -506,4 +510,12 @@ fn create_new_position_session_tracker(
 
 pub fn is_active_vnas_controller(c: &Controller) -> bool {
     c.server == "VIRTUALNAS" && c.facility > 0 && c.frequency != "199.998"
+}
+
+pub fn gzip_decompress(b: &[u8]) -> Result<String, Error> {
+    let mut d = DeflateDecoder::new(b);
+    let mut s = String::new();
+    //println!("{:?}", b);
+    d.read_to_string(&mut s)?;
+    Ok(s)
 }

@@ -19,3 +19,4 @@ shared = { path = "../shared" }
 thiserror.workspace = true
 futures = "0.3.30"
 uuid = { version = "1.7.0", features = ["v7"] }
+flate2.workspace = true

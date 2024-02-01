@@ -11,3 +11,4 @@ vatsim_utils.workspace = true
 rsmq_async.workspace = true
 serde_json.workspace = true
 shared = { path = "../shared" }
+flate2.workspace = true
