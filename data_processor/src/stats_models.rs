@@ -238,6 +238,12 @@ impl PositionSessionTracker {
                 self.position_session.last_updated = d.to_utc()
             }
         }
+
+        if let Ok(d) = DateTime::parse_from_rfc3339(c.logon_time.as_str()) {
+            if d.to_utc() < self.position_session.start_time {
+                self.position_session.start_time = d.to_utc()
+            }
+        }
     }
 
     pub fn try_end_session(&mut self, end_time: Option<DateTime<Utc>>) -> bool {

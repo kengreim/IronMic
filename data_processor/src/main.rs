@@ -371,10 +371,10 @@ async fn process_datafeed(
         let controller_key = format!("{} {}", datafeed_controller.cid, parsed_time.timestamp());
         println!("looking: {}", controller_key);
 
-        for k in active_controller_sessions.keys() {
-            let x = k.clone();
-            println!("key {}", x)
-        }
+        // for k in active_controller_sessions.keys() {
+        //     let x = k.clone();
+        //     println!("key {}", x)
+        // }
 
         if let Some(controller_session_tracker) =
             active_controller_sessions.get_mut(&controller_key)
@@ -467,20 +467,35 @@ async fn process_datafeed(
         }
     }
 
-    for c in active_controller_sessions.keys() {
-        println!("{}", c);
-        let v = active_controller_sessions.get(c).unwrap();
-        println!("{}", v.controller_session.connected_callsign)
-    }
+    // for c in active_controller_sessions.keys() {
+    //     println!("{}", c);
+    //     let v = active_controller_sessions.get(c).unwrap();
+    //     println!("{}", v.controller_session.connected_callsign)
+    // }
 
     for mut p in active_position_sessions.into_values() {
-        println!("Inserting2");
         if !p.marked_active {
             let _ = p.try_end_session(None);
-        }
 
-        sqlx::query(
-            r"
+            // TODO -- do something different for changing active state
+            sqlx::query(
+                r"
+                update positions_sesstions set
+                    is_active = $2,
+                    end_time = $3,
+                    last_updated = $4
+                where id = $1;
+            ",
+            )
+            .bind(&p.position_session.id)
+            .bind(&p.position_session.is_active)
+            .bind(&p.position_session.end_time)
+            .bind(&p.position_session.last_updated)
+            .execute(pool)
+            .await?;
+        } else {
+            sqlx::query(
+                r"
             insert into position_sessions (id, start_time, end_time, last_updated, is_active, facility_id, facility_name, position_simple_callsign)
             values ($1, $2, $3, $4, $5, $6, $7, $8)
             on conflict (id, is_active) do update set
@@ -488,27 +503,43 @@ async fn process_datafeed(
                 last_updated = excluded.last_updated,
                 is_active = excluded.is_active;
             ")
-            .bind(&p.position_session.id)
-            .bind(&p.position_session.start_time)
-            .bind(&p.position_session.end_time)
-            .bind(&p.position_session.last_updated)
-            .bind(&p.position_session.is_active)
-            .bind(&p.position_session.facility_id)
-            .bind(&p.position_session.facility_name)
-            .bind(&p.position_session.position_simple_callsign)
-            .execute(pool)
-            .await?;
+                .bind(&p.position_session.id)
+                .bind(&p.position_session.start_time)
+                .bind(&p.position_session.end_time)
+                .bind(&p.position_session.last_updated)
+                .bind(&p.position_session.is_active)
+                .bind(&p.position_session.facility_id)
+                .bind(&p.position_session.facility_name)
+                .bind(&p.position_session.position_simple_callsign)
+                .execute(pool)
+                .await?;
+        }
     }
 
     // TODO -- iterate through hashmap and save values
     for mut c in active_controller_sessions.into_values() {
-        println!("Inserting");
         if !c.marked_active {
             let _ = c.try_end_session(None);
-        }
 
-        sqlx::query(
-            r"
+            // TODO -- do something different for changing active state
+            sqlx::query(
+                r"
+                update controller_sessions set
+                    is_active = $2,
+                    end_time = $3,
+                    last_updated = $4
+                where id = $1;
+            ",
+            )
+            .bind(&c.controller_session.id)
+            .bind(&c.controller_session.is_active)
+            .bind(&c.controller_session.end_time)
+            .bind(&c.controller_session.last_updated)
+            .execute(pool)
+            .await?;
+        } else {
+            sqlx::query(
+                r"
             insert into controller_sessions (id, start_time, end_time, last_updated, is_active, cid, position_id, position_simple_callsign, connected_callsign, position_session_id, position_session_is_active)
             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             on conflict (id, is_active) do update set
@@ -516,19 +547,20 @@ async fn process_datafeed(
                 last_updated = excluded.last_updated,
                 is_active = excluded.is_active;
             ")
-            .bind(&c.controller_session.id)
-            .bind(&c.controller_session.start_time)
-            .bind(&c.controller_session.end_time)
-            .bind(&c.controller_session.last_updated)
-            .bind(&c.controller_session.is_active)
-            .bind(&c.controller_session.cid)
-            .bind(&c.controller_session.position_id)
-            .bind(&c.controller_session.position_simple_callsign)
-            .bind(&c.controller_session.connected_callsign)
-            .bind(&c.controller_session.position_session_id)
-            .bind(&c.controller_session.position_session_is_active)
-            .execute(pool)
-            .await?;
+                .bind(&c.controller_session.id)
+                .bind(&c.controller_session.start_time)
+                .bind(&c.controller_session.end_time)
+                .bind(&c.controller_session.last_updated)
+                .bind(&c.controller_session.is_active)
+                .bind(&c.controller_session.cid)
+                .bind(&c.controller_session.position_id)
+                .bind(&c.controller_session.position_simple_callsign)
+                .bind(&c.controller_session.connected_callsign)
+                .bind(&c.controller_session.position_session_id)
+                .bind(&c.controller_session.position_session_is_active)
+                .execute(pool)
+                .await?;
+        }
     }
 
     Ok(())
@@ -547,7 +579,7 @@ fn create_new_controller_session_tracker(
         DateTime::parse_from_rfc3339(&datafeed_controller.last_updated),
     ) {
         let new_controller_session = ControllerSession {
-            id: Uuid::new_v4(),
+            id: Uuid::now_v7(),
             start_time: start_time.to_utc(),
             end_time: None,
             last_updated: last_updated.to_utc(),
@@ -590,7 +622,7 @@ fn create_new_position_session_tracker(
                 DateTime::parse_from_rfc3339(&datafeed_controller.last_updated),
             ) {
                 let new_position_session = PositionSession {
-                    id: Uuid::new_v4(),
+                    id: Uuid::now_v7(),
                     start_time: start_time.to_utc(),
                     end_time: None,
                     last_updated: last_updated.to_utc(),
