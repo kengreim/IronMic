@@ -480,7 +480,7 @@ async fn process_datafeed(
             // TODO -- do something different for changing active state
             sqlx::query(
                 r"
-                update positions_sesstions set
+                update position_sessions set
                     is_active = $2,
                     end_time = $3,
                     last_updated = $4
@@ -496,12 +496,12 @@ async fn process_datafeed(
         } else {
             sqlx::query(
                 r"
-            insert into position_sessions (id, start_time, end_time, last_updated, is_active, facility_id, facility_name, position_simple_callsign)
-            values ($1, $2, $3, $4, $5, $6, $7, $8)
-            on conflict (id, is_active) do update set
-                end_time = excluded.end_time,
-                last_updated = excluded.last_updated,
-                is_active = excluded.is_active;
+                insert into position_sessions (id, start_time, end_time, last_updated, is_active, facility_id, facility_name, position_simple_callsign)
+                values ($1, $2, $3, $4, $5, $6, $7, $8)
+                on conflict (id, is_active) do update set
+                    end_time = excluded.end_time,
+                    last_updated = excluded.last_updated,
+                    is_active = excluded.is_active;
             ")
                 .bind(&p.position_session.id)
                 .bind(&p.position_session.start_time)
@@ -540,12 +540,12 @@ async fn process_datafeed(
         } else {
             sqlx::query(
                 r"
-            insert into controller_sessions (id, start_time, end_time, last_updated, is_active, cid, position_id, position_simple_callsign, connected_callsign, position_session_id, position_session_is_active)
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            on conflict (id, is_active) do update set
-                end_time = excluded.end_time,
-                last_updated = excluded.last_updated,
-                is_active = excluded.is_active;
+                insert into controller_sessions (id, start_time, end_time, last_updated, is_active, cid, position_id, position_simple_callsign, connected_callsign, position_session_id, position_session_is_active)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                on conflict (id, is_active) do update set
+                    end_time = excluded.end_time,
+                    last_updated = excluded.last_updated,
+                    is_active = excluded.is_active;
             ")
                 .bind(&c.controller_session.id)
                 .bind(&c.controller_session.start_time)
