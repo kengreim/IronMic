@@ -19,10 +19,10 @@ pub async fn db_update_ended_position_session(
         where id = $1;
     ",
     )
-    .bind(&p.position_session.id)
-    .bind(&p.position_session.is_active)
-    .bind(&p.position_session.end_time)
-    .bind(&p.position_session.last_updated)
+    .bind(p.position_session.id)
+    .bind(p.position_session.is_active)
+    .bind(p.position_session.end_time)
+    .bind(p.position_session.last_updated)
     .execute(pool)
     .await
 }
@@ -40,11 +40,11 @@ pub async fn db_update_active_position_session(
             last_updated = excluded.last_updated,
             is_active = excluded.is_active;"
     )
-        .bind(&p.position_session.id)
-        .bind(&p.position_session.start_time)
-        .bind(&p.position_session.end_time)
-        .bind(&p.position_session.last_updated)
-        .bind(&p.position_session.is_active)
+        .bind(p.position_session.id)
+        .bind(p.position_session.start_time)
+        .bind(p.position_session.end_time)
+        .bind(p.position_session.last_updated)
+        .bind(p.position_session.is_active)
         .bind(&p.position_session.facility_id)
         .bind(&p.position_session.facility_name)
         .bind(&p.position_session.position_simple_callsign)
@@ -64,10 +64,10 @@ pub async fn db_update_ended_controller_session(
             last_updated = $4
         where id = $1;",
     )
-    .bind(&c.controller_session.id)
-    .bind(&c.controller_session.is_active)
-    .bind(&c.controller_session.end_time)
-    .bind(&c.controller_session.last_updated)
+    .bind(c.controller_session.id)
+    .bind(c.controller_session.is_active)
+    .bind(c.controller_session.end_time)
+    .bind(c.controller_session.last_updated)
     .execute(pool)
     .await
 }
@@ -85,17 +85,17 @@ pub async fn db_update_active_controller_session(
             last_updated = excluded.last_updated,
             is_active = excluded.is_active;
         ")
-        .bind(&c.controller_session.id)
-        .bind(&c.controller_session.start_time)
-        .bind(&c.controller_session.end_time)
-        .bind(&c.controller_session.last_updated)
-        .bind(&c.controller_session.is_active)
-        .bind(&c.controller_session.cid)
+        .bind(c.controller_session.id)
+        .bind(c.controller_session.start_time)
+        .bind(c.controller_session.end_time)
+        .bind(c.controller_session.last_updated)
+        .bind(c.controller_session.is_active)
+        .bind(c.controller_session.cid)
         .bind(&c.controller_session.position_id)
         .bind(&c.controller_session.position_simple_callsign)
         .bind(&c.controller_session.connected_callsign)
-        .bind(&c.controller_session.position_session_id)
-        .bind(&c.controller_session.position_session_is_active)
+        .bind(c.controller_session.position_session_id)
+        .bind(c.controller_session.position_session_is_active)
         .execute(pool)
         .await
 }
@@ -125,13 +125,13 @@ pub async fn db_update_vnas_position(
         .bind(&p.position.name)
         .bind(&p.position.radio_name)
         .bind(&p.position.callsign)
-        .bind(&p.position.callsign_prefix())
-        .bind(&p.position.callsign_infix())
-        .bind(&p.position.callsign_suffix())
+        .bind(p.position.callsign_prefix())
+        .bind(p.position.callsign_infix())
+        .bind(p.position.callsign_suffix())
         .bind(format!("{}_{}", &p.position.callsign_prefix(), &p.position.callsign_suffix()))
-        .bind(&p.position.frequency)
+        .bind(p.position.frequency)
         .bind(&p.parent_facility.id)
-        .bind(&artcc.last_updated_at)
+        .bind(artcc.last_updated_at)
         .execute(pool)
         .await
 }
@@ -155,7 +155,7 @@ pub async fn db_update_vnas_facility(
     .bind(&f.facility.id)
     .bind(&f.facility.name)
     .bind(&f.facility.type_field.to_string())
-    .bind(&f.artcc_root.last_updated_at)
+    .bind(f.artcc_root.last_updated_at)
     .bind(&f.parent_facility.as_ref().map(|p| p.id.clone()))
     .bind(&f.artcc_root.id)
     .execute(pool)
@@ -175,7 +175,7 @@ pub async fn db_update_vnas_artcc(
         ",
     )
     .bind(&artcc.id)
-    .bind(&artcc.last_updated_at)
+    .bind(artcc.last_updated_at)
     .execute(pool)
     .await
 }

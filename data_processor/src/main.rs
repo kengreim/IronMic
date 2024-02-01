@@ -76,15 +76,15 @@ fn should_update_artcc(new_fetched_artcc: &ArtccRoot, existing_db_artccs: &[Artc
         .iter()
         .filter(|a| a.id == new_fetched_artcc.id);
 
-    match filtered.nth(0) {
-        Some(existing_artcc) => &new_fetched_artcc.last_updated_at > &existing_artcc.last_updated,
+    match filtered.next() {
+        Some(existing_artcc) => new_fetched_artcc.last_updated_at > existing_artcc.last_updated,
         None => true,
     }
 }
 
 async fn update_artcc_in_db(pool: &Pool<Postgres>, artcc: &ArtccRoot) -> Result<(), sqlx::Error> {
     // Insert or update Artcc root
-    db_update_vnas_artcc(pool, &artcc).await?;
+    db_update_vnas_artcc(pool, artcc).await?;
 
     // Insert or update all Facilities in Artcc
     for f in artcc.all_facilities_with_info() {
@@ -110,7 +110,7 @@ async fn update_all_artccs_in_db(
         .fetch_optional(pool)
         .await?;
 
-    // Update if we've never initialized DB or haven't done it in 24 hours or we want to force update
+    // Update if we've never initialized DB or haven't done it in 24 hours, or we want to force update
     if latest_record.is_none()
         || (Utc::now() - latest_record.unwrap().update_time)
             > chrono::Duration::seconds(60 * 60 * 24)
@@ -140,7 +140,7 @@ async fn update_all_artccs_in_db(
         let position_matchers: Vec<PositionMatcher> = fetched_artccs
             .iter()
             .flat_map(|f| f.all_positions_with_parents())
-            .map(|p| PositionMatcher::from(p))
+            .map(PositionMatcher::from)
             .collect();
 
         return Ok(Some(position_matchers));
@@ -240,7 +240,7 @@ async fn main() {
 
 async fn process_datafeed(
     datafeed_controllers: Vec<&Controller>,
-    position_matchers: &Vec<PositionMatcher>,
+    position_matchers: &[PositionMatcher],
     pool: &Pool<Postgres>,
 ) -> Result<(), sqlx::Error> {
     //let existing_active_controller_sessions = get
@@ -418,11 +418,11 @@ async fn process_datafeed(
 
 fn create_new_controller_session_tracker(
     datafeed_controller: &Controller,
-    position_matchers: &Vec<PositionMatcher>,
+    position_matchers: &[PositionMatcher],
     assoc_position: &PositionSession,
 ) -> Option<ControllerSessionTracker> {
-    let position_id = single_or_no_match(&position_matchers, datafeed_controller)
-        .map(|pm| pm.position.id.clone());
+    let position_id =
+        single_or_no_match(position_matchers, datafeed_controller).map(|pm| pm.position.id.clone());
 
     if let (Ok(start_time), Ok(last_updated)) = (
         DateTime::parse_from_rfc3339(&datafeed_controller.logon_time),
@@ -453,7 +453,7 @@ fn create_new_controller_session_tracker(
 
 fn create_new_position_session_tracker(
     datafeed_controller: &Controller,
-    position_matchers: &Vec<PositionMatcher>,
+    position_matchers: &[PositionMatcher],
 ) -> Option<PositionSessionTracker> {
     // First check if we can match on at least one position
     if let Some(possible_positions) = all_matches(position_matchers, datafeed_controller) {
@@ -465,7 +465,7 @@ fn create_new_position_session_tracker(
         if facility_hashmap.len() == 1 {
             let facility_hashmap_key = facility_hashmap.keys().next().unwrap();
 
-            if let (Ok(start_time), Ok(last_updated)) = (
+            return if let (Ok(start_time), Ok(last_updated)) = (
                 DateTime::parse_from_rfc3339(&datafeed_controller.logon_time),
                 DateTime::parse_from_rfc3339(&datafeed_controller.last_updated),
             ) {
@@ -490,13 +490,13 @@ fn create_new_position_session_tracker(
                     position_simple_callsign: datafeed_controller.simple_callsign().to_owned(),
                 };
 
-                return Some(PositionSessionTracker {
+                Some(PositionSessionTracker {
                     position_session: new_position_session,
                     marked_active: true,
-                });
+                })
             } else {
-                return None;
-            }
+                None
+            };
         }
         return None;
     }

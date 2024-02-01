@@ -54,11 +54,7 @@ impl AllFacilities for Facility {
         let node = FacilityWithTreeInfo {
             facility: self.to_owned(),
             artcc_root: artcc.to_owned(),
-            parent_facility: if let Some(p) = parent {
-                Some(p.to_owned())
-            } else {
-                None
-            },
+            parent_facility: parent.map(|p| p.to_owned()),
         };
         if self.child_facilities.is_empty() {
             vec![node]
@@ -96,9 +92,9 @@ impl AllPositions for Facility {
 
     fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility> {
         if self.child_facilities.is_empty() {
-            map_positions_with_parent(&self)
+            map_positions_with_parent(self)
         } else {
-            let mut vec = map_positions_with_parent(&self);
+            let mut vec = map_positions_with_parent(self);
             self.child_facilities
                 .iter()
                 .for_each(|f| vec.extend(f.all_positions_with_parents()));

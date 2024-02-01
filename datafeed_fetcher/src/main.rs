@@ -1,5 +1,4 @@
 use rsmq_async::{Rsmq, RsmqConnection, RsmqOptions};
-use shared;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use vatsim_utils::live_api::Vatsim;

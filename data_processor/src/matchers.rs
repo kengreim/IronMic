@@ -42,7 +42,7 @@ pub fn single_or_no_match<'a>(
 ) -> Option<&'a PositionMatcher> {
     let mut matched: Vec<&PositionMatcher> = vec![];
     for matcher in matchers {
-        if matcher.is_match(&controller) {
+        if matcher.is_match(controller) {
             matched.push(matcher);
         }
     }

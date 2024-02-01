@@ -22,8 +22,6 @@ pub struct ControllerSession {
     pub last_updated: DateTime<Utc>,
     pub is_active: bool,
     pub cid: i32,
-    //pub facility_id: String,
-    //pub facility_name: String,
     pub position_id: Option<String>,
     pub position_simple_callsign: String,
     pub connected_callsign: String,
@@ -50,10 +48,8 @@ pub struct PositionSession {
     pub end_time: Option<DateTime<Utc>>,
     pub last_updated: DateTime<Utc>,
     pub is_active: bool,
-    //pub cid: i32,
     pub facility_id: String,
     pub facility_name: String,
-    //pub position_id: Option<String>,
     pub position_simple_callsign: String,
 }
 
