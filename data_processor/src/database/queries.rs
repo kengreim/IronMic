@@ -1,7 +1,7 @@
-use crate::database::models::{Artcc, ControllerSession, PositionSession, VnasFetchRecord};
-use crate::stats_models::{ControllerSessionTracker, PositionSessionTracker};
-use crate::vnas_aggregate_models::{Callsign, FacilityWithTreeInfo, PositionWithParentFacility};
-use crate::vnas_api_models::ArtccRoot;
+use super::models::{Artcc, ControllerSession, PositionSession, VnasFetchRecord};
+use crate::session_trackers::{ControllerSessionTracker, PositionSessionTracker};
+use crate::vnas::api_dtos::ArtccRoot;
+use crate::vnas::extended_models::{Callsign, FacilityWithTreeInfo, PositionWithParentFacility};
 use chrono::Utc;
 use sqlx::postgres::PgQueryResult;
 use sqlx::{Error, Pool, Postgres};

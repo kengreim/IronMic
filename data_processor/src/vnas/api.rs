@@ -1,4 +1,4 @@
-use crate::vnas_api_models::ArtccRoot;
+use super::api_dtos::ArtccRoot;
 use reqwest::{Client, ClientBuilder, Error};
 
 const BASE_URL: &str = "https://data-api.vnas.vatsim.net/api";

@@ -1,4 +1,4 @@
-use crate::vnas_api_models::{ArtccRoot, Facility, Position};
+use super::api_dtos::{ArtccRoot, Facility, Position};
 use regex::{Error, Regex};
 use vatsim_utils::models::Controller;
 

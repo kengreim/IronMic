@@ -1,5 +1,5 @@
-use crate::vnas_aggregate_models::{Callsign, PositionWithParentFacility};
-use crate::vnas_api_models::{Facility, Position};
+use crate::vnas::api_dtos::{Facility, Position};
+use crate::vnas::extended_models::{Callsign, PositionWithParentFacility};
 use regex::Regex;
 use std::num::ParseFloatError;
 use vatsim_utils::models::Controller;

@@ -6,8 +6,10 @@ use crate::database::queries::{
     db_update_vnas_position,
 };
 use crate::matchers::{all_matches, PositionMatcher};
-use crate::stats_models::{ControllerSessionTracker, PositionSessionTracker};
-use crate::vnas_api_models::ArtccRoot;
+use crate::session_trackers::{ControllerSessionTracker, PositionSessionTracker};
+use crate::vnas::api::VnasApi;
+use crate::vnas::api_dtos::ArtccRoot;
+use crate::vnas::extended_models::{AllPositions, Callsign};
 use chrono::{DateTime, Utc};
 use flate2::read::DeflateDecoder;
 use futures::future::join_all;
@@ -20,15 +22,11 @@ use std::collections::HashMap;
 use std::io::{Error, Read};
 use uuid::Uuid;
 use vatsim_utils::models::Controller;
-use vnas_aggregate_models::{AllPositions, Callsign};
-use vnas_api::VnasApi;
 
 mod database;
 mod matchers;
-mod stats_models;
-mod vnas_aggregate_models;
-mod vnas_api;
-mod vnas_api_models;
+mod session_trackers;
+mod vnas;
 
 #[derive(Debug, thiserror::Error)]
 enum DbInitError {
