@@ -1,16 +1,15 @@
-use crate::database::{
-    db_get_active_controller_sessions, db_get_active_position_sessions,
-    db_update_active_controller_session, db_update_active_position_session,
-    db_update_ended_controller_session, db_update_ended_position_session, db_update_vnas_artcc,
-    db_update_vnas_facility, db_update_vnas_position,
+use crate::database::models::{Artcc, ControllerSession, PositionSession};
+use crate::database::queries::{
+    db_get_active_controller_sessions, db_get_active_position_sessions, db_get_all_artccs,
+    db_get_latest_fetch_record, db_insert_vnas_fetch_record, db_update_controller_session,
+    db_update_position_session, db_update_vnas_artcc, db_update_vnas_facility,
+    db_update_vnas_position,
 };
-use crate::db_models::{ControllerSession, PositionSession};
 use crate::matchers::{all_matches, PositionMatcher};
 use crate::stats_models::{ControllerSessionTracker, PositionSessionTracker};
 use crate::vnas_api_models::ArtccRoot;
 use chrono::{DateTime, Utc};
-use db_models::{Artcc, VnasFetchRecord};
-use flate2::read::{DeflateDecoder, GzDecoder};
+use flate2::read::DeflateDecoder;
 use futures::future::join_all;
 use matchers::single_or_no_match;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
@@ -25,7 +24,6 @@ use vnas_aggregate_models::{AllPositions, Callsign};
 use vnas_api::VnasApi;
 
 mod database;
-mod db_models;
 mod matchers;
 mod stats_models;
 mod vnas_aggregate_models;
@@ -106,11 +104,7 @@ async fn update_all_artccs_in_db(
     force_update: bool,
 ) -> Result<Option<Vec<PositionMatcher>>, VnasDataUpdateError> {
     // Get record of latest vNAS data fetch. Update if none or stale data (>24 hours old)
-    let latest_record = sqlx::query_as::<_, VnasFetchRecord>(
-        "select id, update_time, success from vnas_fetch_records where success = true order by update_time desc;",
-    )
-        .fetch_optional(pool)
-        .await?;
+    let latest_record = db_get_latest_fetch_record(pool).await?;
 
     // Update if we've never initialized DB or haven't done it in 24 hours, or we want to force update
     if latest_record.is_none()
@@ -118,12 +112,8 @@ async fn update_all_artccs_in_db(
             > chrono::Duration::seconds(60 * 60 * 24)
         || force_update
     {
-        let vnas = VnasApi::new().unwrap();
-        let fetched_artccs = vnas.get_all_artccs_data().await?;
-
-        let db_artccs = sqlx::query_as::<_, Artcc>("select * from artccs;")
-            .fetch_all(pool)
-            .await?;
+        let fetched_artccs = VnasApi::new().unwrap().get_all_artccs_data().await?;
+        let db_artccs = db_get_all_artccs(pool).await?;
 
         let needs_update = fetched_artccs
             .iter()
@@ -133,11 +123,7 @@ async fn update_all_artccs_in_db(
         let results = join_all(needs_update.map(|artcc| update_artcc_in_db(pool, artcc))).await;
 
         // Store record of vNAS data check. If any errors, log as unsuccessful
-        sqlx::query("insert into vnas_fetch_records (update_time, success) values ($1, $2);")
-            .bind(Utc::now())
-            .bind(!results.iter().any(|r| r.is_err()))
-            .execute(pool)
-            .await?;
+        db_insert_vnas_fetch_record(pool, !results.iter().any(|r| r.is_err())).await?;
 
         let position_matchers: Vec<PositionMatcher> = fetched_artccs
             .iter()
@@ -194,10 +180,11 @@ async fn main() {
         panic!("Could not initialize Redis connection")
     };
 
-    while let msg = rsmq
-        .receive_message::<Vec<u8>>(shared::DATAFEED_QUEUE_NAME, None)
-        .await
-    {
+    loop {
+        let msg = rsmq
+            .receive_message::<Vec<u8>>(shared::DATAFEED_QUEUE_NAME, None)
+            .await;
+
         if let Err(e) = &msg {
             println!("here");
             println!("Error receiving message")
@@ -230,18 +217,6 @@ async fn main() {
     }
 }
 
-// async fn process_datafeed(
-//     datafeed_controllers: Vec<&Controller>,
-//     position_matchers: &Vec<PositionMatcher>,
-//     pool: &Pool<Postgres>,
-// ) {
-//     let active_controller_sessions = get_active_controller_sessions_from_db(pool).await?;
-//     let active_position_sessions = get_active_position_sessions_from_db(pool).await?;
-//
-//     let position_session_id_hashmap
-//
-// }
-
 async fn process_datafeed(
     datafeed_controllers: Vec<&Controller>,
     position_matchers: &[PositionMatcher],
@@ -270,7 +245,7 @@ async fn process_datafeed(
         .into_iter()
         .map(|c| {
             (
-                format!("{} {}", c.cid, c.start_time.timestamp()),
+                make_controller_key(&c.cid.to_string(), c.start_time),
                 ControllerSessionTracker::new(c),
             )
         })
@@ -293,39 +268,21 @@ async fn process_datafeed(
         let parsed_time = DateTime::parse_from_rfc3339(&datafeed_controller.logon_time)
             .unwrap_or(DateTime::default())
             .to_utc();
-        let controller_key = format!("{} {}", datafeed_controller.cid, parsed_time.timestamp());
-        println!("looking: {}", controller_key);
-
-        // for k in active_controller_sessions.keys() {
-        //     let x = k.clone();
-        //     println!("key {}", x)
-        // }
+        let controller_key = make_controller_key(&datafeed_controller.cid.to_string(), parsed_time);
 
         if let Some(controller_session_tracker) =
             active_controller_sessions.get_mut(&controller_key)
         {
-            println!(
-                "Found existing controller {} on {}",
-                datafeed_controller.cid, datafeed_controller.callsign
-            );
-
-            controller_session_tracker.mark_active();
-            controller_session_tracker.update_from(datafeed_controller);
+            controller_session_tracker.mark_active_from(datafeed_controller);
 
             // Find Position based on "simple callsign" (no infix) and mark as active
             if let Some(position_session_tracker) =
                 active_position_sessions.get_mut(&datafeed_controller.simple_callsign())
             {
-                position_session_tracker.mark_active();
-                position_session_tracker.update_from(datafeed_controller);
+                position_session_tracker.mark_active_from(datafeed_controller);
             }
         } else {
             // TODO -- see if there is position linked to this simple callsign. If not, create one that we can attach new controller session to. Add to position hashmap and mark active
-
-            println!(
-                "Found new controller {} on {}",
-                datafeed_controller.cid, datafeed_controller.callsign
-            );
 
             if let Some(position_session_tracker) =
                 active_position_sessions.get_mut(&datafeed_controller.simple_callsign())
@@ -338,26 +295,23 @@ async fn process_datafeed(
                     &position_session_tracker.position_session,
                 ) {
                     active_controller_sessions.insert(
-                        format!(
-                            "{} {}",
-                            new_controller_session_tracker.controller_session.cid,
-                            new_controller_session_tracker
+                        make_controller_key(
+                            &new_controller_session_tracker
                                 .controller_session
-                                .start_time
-                                .timestamp()
+                                .cid
+                                .to_string(),
+                            new_controller_session_tracker.controller_session.start_time,
                         ),
                         new_controller_session_tracker,
                     );
 
-                    position_session_tracker.mark_active();
-                    position_session_tracker.update_from(datafeed_controller);
+                    position_session_tracker.mark_active_from(datafeed_controller);
                 }
             } else {
                 // TODO -- create position session and controller session and add
                 if let Some(new_position_session_tracker) =
                     create_new_position_session_tracker(datafeed_controller, position_matchers)
                 {
-                    println!("here");
                     if let Some(new_controller_session_tracker) =
                         create_new_controller_session_tracker(
                             datafeed_controller,
@@ -365,8 +319,6 @@ async fn process_datafeed(
                             &new_position_session_tracker.position_session,
                         )
                     {
-                        println!("here2");
-
                         active_position_sessions.insert(
                             new_position_session_tracker
                                 .position_session
@@ -376,13 +328,12 @@ async fn process_datafeed(
                         );
 
                         active_controller_sessions.insert(
-                            format!(
-                                "{} {}",
-                                new_controller_session_tracker.controller_session.cid,
-                                new_controller_session_tracker
+                            make_controller_key(
+                                &new_controller_session_tracker
                                     .controller_session
-                                    .start_time
-                                    .timestamp()
+                                    .cid
+                                    .to_string(),
+                                new_controller_session_tracker.controller_session.start_time,
                             ),
                             new_controller_session_tracker,
                         );
@@ -392,29 +343,19 @@ async fn process_datafeed(
         }
     }
 
-    // for c in active_controller_sessions.keys() {
-    //     println!("{}", c);
-    //     let v = active_controller_sessions.get(c).unwrap();
-    //     println!("{}", v.controller_session.connected_callsign)
-    // }
-
     for mut p in active_position_sessions.into_values() {
         if !p.marked_active {
             let _ = p.try_end_session(None);
-            db_update_ended_position_session(pool, &p).await?;
-        } else {
-            db_update_active_position_session(pool, &p).await?;
         }
+        db_update_position_session(pool, &p).await?;
     }
 
     // TODO -- iterate through hashmap and save values
     for mut c in active_controller_sessions.into_values() {
         if !c.marked_active {
             let _ = c.try_end_session(None);
-            db_update_ended_controller_session(pool, &c).await?;
-        } else {
-            db_update_active_controller_session(pool, &c).await?;
         }
+        db_update_controller_session(pool, &c).await?;
     }
 
     Ok(())
@@ -512,10 +453,13 @@ pub fn is_active_vnas_controller(c: &Controller) -> bool {
     c.server == "VIRTUALNAS" && c.facility > 0 && c.frequency != "199.998"
 }
 
-pub fn gzip_decompress(b: &[u8]) -> Result<String, Error> {
+fn gzip_decompress(b: &[u8]) -> Result<String, Error> {
     let mut d = DeflateDecoder::new(b);
     let mut s = String::new();
-    //println!("{:?}", b);
     d.read_to_string(&mut s)?;
     Ok(s)
+}
+
+fn make_controller_key(cid: &str, time: DateTime<Utc>) -> String {
+    format!("{} {}", cid, time.timestamp())
 }

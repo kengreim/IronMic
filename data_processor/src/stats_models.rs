@@ -1,4 +1,4 @@
-use crate::db_models::{ControllerSession, PositionSession};
+use crate::database::models::{ControllerSession, PositionSession};
 use chrono::{DateTime, Utc};
 use std::cmp::{max, min};
 use vatsim_utils::models::Controller;
@@ -16,23 +16,15 @@ impl PositionSessionTracker {
         }
     }
 
-    pub fn mark_active(&mut self) {
-        self.marked_active = true
-    }
+    pub fn mark_active_from(&mut self, c: &Controller) {
+        self.marked_active = true;
 
-    pub fn update_from(&mut self, c: &Controller) {
         if let Ok(d) = DateTime::parse_from_rfc3339(c.last_updated.as_str()) {
-            // if d.to_utc() > self.position_session.last_updated {
-            //     self.position_session.last_updated = d.to_utc()
-            // }
             self.position_session.last_updated =
                 max(d.to_utc(), self.position_session.last_updated);
         }
 
         if let Ok(d) = DateTime::parse_from_rfc3339(c.logon_time.as_str()) {
-            // if d.to_utc() < self.position_session.start_time {
-            //     self.position_session.start_time = d.to_utc()
-            // }
             self.position_session.start_time = min(d.to_utc(), self.position_session.start_time);
         }
     }
@@ -55,11 +47,8 @@ impl ControllerSessionTracker {
         }
     }
 
-    pub fn mark_active(&mut self) {
-        self.marked_active = true
-    }
-
-    pub fn update_from(&mut self, c: &Controller) {
+    pub fn mark_active_from(&mut self, c: &Controller) {
+        self.marked_active = true;
         if let Ok(d) = DateTime::parse_from_rfc3339(c.last_updated.as_str()) {
             self.controller_session.last_updated = d.to_utc()
         }

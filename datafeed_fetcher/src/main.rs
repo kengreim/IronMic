@@ -1,4 +1,4 @@
-use flate2::write::{DeflateEncoder, GzEncoder};
+use flate2::write::DeflateEncoder;
 use flate2::Compression;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqOptions};
 use std::io::{Error, Write};
@@ -27,22 +27,22 @@ async fn main() {
 
     //let _ = rsmq.delete_queue(shared::DATAFEED_QUEUE_NAME).await;
 
-    if let Err(e) = rsmq
+    let Ok(queues) = rsmq.list_queues().await else {
+        panic!("error")
+    };
+
+    if queues.contains(&shared::DATAFEED_QUEUE_NAME.to_string()) {
+        if let Err(e) = rsmq
+            .set_queue_attributes(shared::DATAFEED_QUEUE_NAME, None, None, Some(-1))
+            .await
+        {
+            println!("could not set max size {}", e); // Note this errors out but seemling sets max size ok
+        }
+    } else if let Err(e) = rsmq
         .create_queue(shared::DATAFEED_QUEUE_NAME, None, None, Some(-1))
         .await
     {
         println!("error creating queue");
-    }
-
-    if let Err(e) = rsmq
-        .set_queue_attributes(shared::DATAFEED_QUEUE_NAME, None, None, Some(-1))
-        .await
-    {
-        println!("could not set max size {}", e); // Note this errors out but seemling sets max size ok
-    }
-
-    if let Err(e) = rsmq.get_queue_attributes(shared::DATAFEED_QUEUE_NAME).await {
-        println!("err {}", e);
     }
 
     // Datafetcher infinite loop
@@ -73,14 +73,10 @@ async fn main() {
             continue;
         };
 
-        let now = Instant::now();
         let Ok(compressed) = gzip_compress(&controllers) else {
             // todo log error
             continue;
         };
-        println!("took {} millis", (Instant::now() - now).as_millis());
-
-        //println!("{:?}", compressed);
 
         // Send message to Redis with Controllers JSON
         let sent = rsmq
@@ -90,17 +86,14 @@ async fn main() {
             println!("{}", controllers);
             panic!("{}", e.to_string());
         }
-        println!("Sent to Redis");
 
         // Sleep for 15 seconds minus the time this loop took
         let sleep_duration = Duration::from_secs(15) - (Instant::now() - start);
-        println!("took {} seconds", (Instant::now() - start).as_secs());
-        println!("sleeping for {:?}", sleep_duration);
         sleep(sleep_duration).await;
     }
 }
 
-pub fn gzip_compress(s: &str) -> Result<Vec<u8>, Error> {
+fn gzip_compress(s: &str) -> Result<Vec<u8>, Error> {
     let mut e = DeflateEncoder::new(Vec::new(), Compression::default());
     e.write_all(s.as_bytes())?;
     e.finish()

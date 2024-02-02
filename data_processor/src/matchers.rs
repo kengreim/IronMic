@@ -21,10 +21,6 @@ impl PositionMatcher {
             }
     }
 
-    pub fn is_starred_match(&self, controller: &Controller) -> bool {
-        self.is_match(controller) && self.position.starred
-    }
-
     fn is_freq_match(&self, vatsim_freq_str: &str) -> Result<bool, ParseFloatError> {
         let vatsim_freq_f = vatsim_freq_str.parse::<f64>();
         if let Ok(f) = vatsim_freq_f {

@@ -24,10 +24,6 @@ pub trait AllPositions {
 }
 
 impl ArtccRoot {
-    fn all_facilities(&self) -> Vec<Facility> {
-        self.facility.all_facilities()
-    }
-
     pub fn all_facilities_with_info(&self) -> Vec<FacilityWithTreeInfo> {
         self.facility.all_facilities_with_info(self, None)
     }
