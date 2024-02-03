@@ -1,7 +1,7 @@
 use super::models::{Artcc, ControllerSession, PositionSession, VnasFetchRecord};
 use crate::session_trackers::{ControllerSessionTracker, PositionSessionTracker};
 use crate::vnas::api_dtos::ArtccRoot;
-use crate::vnas::extended_models::{Callsign, FacilityWithTreeInfo, PositionWithParentFacility};
+use crate::vnas::extended_models::{Callsign, FacilityWithTreeInfo, PositionExt};
 use chrono::Utc;
 use sqlx::postgres::PgQueryResult;
 use sqlx::{Error, Pool, Postgres};
@@ -95,7 +95,7 @@ pub async fn db_update_controller_session(
 
 pub async fn db_update_vnas_position(
     pool: &Pool<Postgres>,
-    p: &PositionWithParentFacility,
+    p: &PositionExt,
     artcc: &ArtccRoot,
 ) -> Result<PgQueryResult, Error> {
     sqlx::query(

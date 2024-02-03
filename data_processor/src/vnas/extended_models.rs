@@ -21,7 +21,7 @@ pub struct FacilityWithTreeInfo {
 
 pub trait AllPositions {
     fn all_positions(&self) -> Vec<Position>;
-    fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility>;
+    fn all_positions_with_parents(&self) -> Vec<PositionExt>;
 }
 
 impl ArtccRoot {
@@ -69,7 +69,7 @@ impl AllPositions for ArtccRoot {
     fn all_positions(&self) -> Vec<Position> {
         self.facility.all_positions()
     }
-    fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility> {
+    fn all_positions_with_parents(&self) -> Vec<PositionExt> {
         self.facility.all_positions_with_parents()
     }
 }
@@ -87,7 +87,7 @@ impl AllPositions for Facility {
         }
     }
 
-    fn all_positions_with_parents(&self) -> Vec<PositionWithParentFacility> {
+    fn all_positions_with_parents(&self) -> Vec<PositionExt> {
         if self.child_facilities.is_empty() {
             map_positions_with_parent(self)
         } else {
@@ -100,11 +100,11 @@ impl AllPositions for Facility {
     }
 }
 
-fn map_positions_with_parent(facility: &Facility) -> Vec<PositionWithParentFacility> {
+fn map_positions_with_parent(facility: &Facility) -> Vec<PositionExt> {
     facility
         .positions
         .iter()
-        .map(|p| PositionWithParentFacility {
+        .map(|p| PositionExt {
             parent_facility: facility.clone(),
             position: p.clone(),
             regex: p.build_match_regex().unwrap(),
@@ -112,13 +112,13 @@ fn map_positions_with_parent(facility: &Facility) -> Vec<PositionWithParentFacil
         .collect()
 }
 
-pub struct PositionWithParentFacility {
+pub struct PositionExt {
     pub parent_facility: Facility,
     pub position: Position,
     pub regex: Regex,
 }
 
-impl PositionWithParentFacility {
+impl PositionExt {
     pub fn is_match(&self, controller: &Controller) -> bool {
         self.regex.is_match(&controller.callsign)
             && if let Ok(b) = self.is_freq_match(&controller.frequency) {

@@ -5,15 +5,14 @@ use crate::database::queries::{
     db_update_position_session, db_update_vnas_artcc, db_update_vnas_facility,
     db_update_vnas_position,
 };
-use crate::matchers::all_matches;
+use crate::matchers::{all_matches, single_or_no_match};
 use crate::session_trackers::{ControllerSessionTracker, PositionSessionTracker};
 use crate::vnas::api::{VnasApi, VnasApiError};
 use crate::vnas::api_dtos::ArtccRoot;
-use crate::vnas::extended_models::{AllPositions, Callsign, PositionWithParentFacility};
+use crate::vnas::extended_models::{AllPositions, Callsign, PositionExt};
 use chrono::{DateTime, Utc};
 use flate2::read::DeflateDecoder;
 use futures::future::join_all;
-use matchers::single_or_no_match;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
 use sqlx::migrate::MigrateError;
 use sqlx::postgres::PgPoolOptions;
@@ -63,7 +62,7 @@ async fn initialize_rsmq(queue_name: &str) -> Result<Rsmq, RsmqError> {
     let mut rsmq = Rsmq::new(connection_options).await?;
     let queues = rsmq.list_queues().await?;
     if !queues.contains(&queue_name.to_string()) {
-        rsmq.create_queue(queue_name, None, None, None).await?
+        rsmq.create_queue(queue_name, None, None, Some(-1)).await?
     }
 
     Ok(rsmq)
@@ -100,7 +99,7 @@ async fn update_artcc_in_db(pool: &Pool<Postgres>, artcc: &ArtccRoot) -> Result<
 async fn update_all_artccs_in_db(
     pool: &Pool<Postgres>,
     force_update: bool,
-) -> Result<Option<Vec<PositionWithParentFacility>>, VnasDataUpdateError> {
+) -> Result<Option<Vec<PositionExt>>, VnasDataUpdateError> {
     // Get record of latest vNAS data fetch. Update if none or stale data (>24 hours old)
     let latest_record = db_get_latest_fetch_record(pool).await?;
 
@@ -123,7 +122,7 @@ async fn update_all_artccs_in_db(
         // Store record of vNAS data check. If any errors, log as unsuccessful
         db_insert_vnas_fetch_record(pool, !results.iter().any(|r| r.is_err())).await?;
 
-        let position_matchers: Vec<PositionWithParentFacility> = fetched_artccs
+        let position_matchers: Vec<PositionExt> = fetched_artccs
             .iter()
             .flat_map(|f| f.all_positions_with_parents())
             .collect();
@@ -198,7 +197,7 @@ async fn main() {
         }
 
         if let Some(message) = msg.unwrap() {
-            let decompressed = gzip_decompress(&message.message).unwrap(); // todo strengthen parsing safety
+            let decompressed = decompress(&message.message).unwrap(); // todo strengthen parsing safety
 
             let controllers: Vec<Controller> = serde_json::from_str(&decompressed).unwrap(); // TODO -- strengthen parsing safety
             let vnas_controllers: Vec<&Controller> = controllers
@@ -226,7 +225,7 @@ async fn main() {
 
 async fn process_datafeed(
     datafeed_controllers: Vec<&Controller>,
-    vnas_positions: &[PositionWithParentFacility],
+    vnas_positions: &[PositionExt],
     pool: &Pool<Postgres>,
 ) -> Result<(), sqlx::Error> {
     //let existing_active_controller_sessions = get
@@ -370,7 +369,7 @@ async fn process_datafeed(
 
 fn create_new_controller_session_tracker(
     datafeed_controller: &Controller,
-    vnas_positions: &[PositionWithParentFacility],
+    vnas_positions: &[PositionExt],
     assoc_position: &PositionSession,
 ) -> Option<ControllerSessionTracker> {
     let position_id =
@@ -405,7 +404,7 @@ fn create_new_controller_session_tracker(
 
 fn create_new_position_session_tracker(
     datafeed_controller: &Controller,
-    vnas_positions: &[PositionWithParentFacility],
+    vnas_positions: &[PositionExt],
 ) -> Option<PositionSessionTracker> {
     // First check if we can match on at least one position
     if let Some(possible_positions) = all_matches(vnas_positions, datafeed_controller) {
@@ -460,7 +459,7 @@ pub fn is_active_vnas_controller(c: &Controller) -> bool {
     c.server == "VIRTUALNAS" && c.facility > 0 && c.frequency != "199.998"
 }
 
-fn gzip_decompress(b: &[u8]) -> Result<String, Error> {
+fn decompress(b: &[u8]) -> Result<String, Error> {
     let mut d = DeflateDecoder::new(b);
     let mut s = String::new();
     d.read_to_string(&mut s)?;
