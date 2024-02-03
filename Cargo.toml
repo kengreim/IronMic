@@ -8,9 +8,9 @@ rsmq_async = "8.0.2"
 serde_json = "1.0.112"
 tokio = { version = "1.35.1", features = ["rt", "rt-multi-thread", "macros"] }
 chrono = { version = "0.4.33", features = ["serde"] }
-serde = {  version = "1.0.196", features = ["derive"] }
+serde = { version = "1.0.196", features = ["derive"] }
 thiserror = "1.0.56"
 flate2 = "1.0.28"
 anyhow = "1.0.79"
 tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
+tracing-subscriber = { version = "0.3.18", features = ["json"] }

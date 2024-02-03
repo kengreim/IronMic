@@ -25,6 +25,7 @@ pub struct ControllerSession {
     pub position_id: Option<String>,
     pub position_simple_callsign: String,
     pub connected_callsign: String,
+    pub connected_frequency: String,
     pub position_session_id: Uuid,
     pub position_session_is_active: bool,
 }

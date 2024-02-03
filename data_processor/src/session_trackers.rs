@@ -1,6 +1,8 @@
 use crate::database::models::{ControllerSession, PositionSession};
+use crate::make_controller_key;
 use chrono::{DateTime, Utc};
 use std::cmp::{max, min};
+use std::collections::HashMap;
 use vatsim_utils::models::Controller;
 
 pub struct PositionSessionTracker {
@@ -56,5 +58,51 @@ impl ControllerSessionTracker {
 
     pub fn try_end_session(&mut self, end_time: Option<DateTime<Utc>>) -> bool {
         self.controller_session.try_end_session(end_time)
+    }
+}
+
+pub struct ActiveSessionsMap {
+    pub controllers: HashMap<String, ControllerSessionTracker>,
+    pub positions: HashMap<String, PositionSessionTracker>,
+}
+
+impl ActiveSessionsMap {
+    pub fn insert_new_controller(&mut self, c: ControllerSessionTracker) {
+        self.controllers.insert(
+            make_controller_key(
+                &c.controller_session.cid.to_string(),
+                c.controller_session.start_time,
+            ),
+            c,
+        );
+    }
+
+    pub fn insert_new_position(&mut self, p: PositionSessionTracker) {
+        self.positions
+            .insert(p.position_session.position_simple_callsign.to_owned(), p);
+    }
+
+    pub fn controller_exists(&self, key: &str) -> bool {
+        self.controllers.contains_key(key)
+    }
+
+    pub fn position_exists(&self, key: &str) -> bool {
+        self.positions.contains_key(key)
+    }
+
+    pub fn mark_controller_active_from(&mut self, key: &str, controller: &Controller) {
+        if let Some(c) = self.controllers.get_mut(key) {
+            c.mark_active_from(controller);
+        }
+    }
+
+    pub fn mark_position_active_from(&mut self, key: &str, controller: &Controller) {
+        if let Some(p) = self.positions.get_mut(key) {
+            p.mark_active_from(controller);
+        }
+    }
+
+    pub fn get_position(&self, key: &str) -> Option<&PositionSessionTracker> {
+        self.positions.get(key)
     }
 }

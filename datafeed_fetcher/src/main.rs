@@ -12,6 +12,7 @@ use vatsim_utils::live_api::Vatsim;
 async fn main() -> Result<(), SetGlobalDefaultError> {
     let subscriber = tracing_subscriber::fmt()
         .compact()
+        .json()
         .with_file(true)
         .with_line_number(true)
         .finish();
@@ -20,7 +21,9 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
 
     // Set up VATSIM Datafeed
     let mut last_datafeed_update = String::new();
-    let api = Vatsim::new().await.unwrap();
+    let api = Vatsim::new()
+        .await
+        .expect("Could not initialize VATSIM API");
 
     // Set up Redis Queue
     let connection_options = RsmqOptions {
@@ -54,7 +57,9 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
         };
 
         // Unwrap and check if duplicate from last fetch
+        // Safe to unwrap because checked Err case above already
         let latest_data = latest_data_result.unwrap();
+
         if latest_data.general.update == last_datafeed_update {
             debug!(time = %latest_data.general.update, "Found duplicate");
             sleep(Duration::from_secs(1)).await;

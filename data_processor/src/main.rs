@@ -6,7 +6,9 @@ use crate::database::queries::{
     db_update_vnas_position,
 };
 use crate::matchers::{all_matches, single_or_no_match};
-use crate::session_trackers::{ControllerSessionTracker, PositionSessionTracker};
+use crate::session_trackers::{
+    ActiveSessionsMap, ControllerSessionTracker, PositionSessionTracker,
+};
 use crate::vnas::api::{VnasApi, VnasApiError};
 use crate::vnas::api_dtos::ArtccRoot;
 use crate::vnas::extended_models::{AllPositions, Callsign, PositionExt};
@@ -19,6 +21,8 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::io::{Error, Read};
+use tracing::subscriber::SetGlobalDefaultError;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 use vatsim_utils::models::Controller;
 
@@ -48,6 +52,109 @@ enum VnasDataUpdateError {
     ApiError(#[from] VnasApiError),
 }
 
+#[tokio::main]
+async fn main() -> Result<(), SetGlobalDefaultError> {
+    let subscriber = tracing_subscriber::fmt()
+        .compact()
+        .json()
+        .with_file(true)
+        .with_line_number(true)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    // Overall flow
+    // - Initialize DB if needed, and do initial fetch if no vNAS data fetches have been done
+    // - Initialize Redis connection
+    // - Start Redis message receive loop
+    // - With message:
+    // -    If no USA controllers online, check if last data fetch was more than 24 hours ago. If yes, fetch new data and update any ARTCCS that need updating
+    // -    If USA controllers online, process existing active sessions (keep open or close) and add new sessions if needed
+    // -    Aggregate stats
+
+    let db_pool = match initialize_db("postgres://postgres:pw@localhost/ironmic").await {
+        Ok(db_pool) => db_pool,
+        Err(e) => {
+            error!(error = ?e, "Could not initialize DB connection pool");
+            panic!("Could not initialize DB connection pool")
+        }
+    };
+
+    let mut vnas_positions = match update_all_artccs_in_db(&db_pool, true).await {
+        Ok(Some(vnas_positions)) => vnas_positions,
+        Ok(None) => {
+            error!("Could not initialize DB position matchers, returned None");
+            panic!("Could not initialize DB position matchers")
+        }
+        Err(e) => {
+            error!(error = ?e, "Could not initialize DB position matchers");
+            panic!("Could not initialize DB position matchers")
+        }
+    };
+
+    let mut rsmq = match initialize_rsmq(shared::DATAFEED_QUEUE_NAME).await {
+        Ok(rsmq) => rsmq,
+        Err(e) => {
+            error!(error = ?e, "Could not initialize Redis connection");
+            panic!("Could not initialize Redis connection");
+        }
+    };
+
+    // Start of infinite loop
+    loop {
+        let msg = rsmq
+            .receive_message::<Vec<u8>>(shared::DATAFEED_QUEUE_NAME, None)
+            .await;
+
+        if let Err(e) = &msg {
+            warn!(error = ?e, "Error receiving message from Redis");
+            continue;
+        }
+
+        if let Some(message) = msg.unwrap() {
+            let decompressed = match decompress(&message.message) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(error = ?e, "Error decompressing message from Redis");
+                    continue;
+                }
+            };
+
+            let controllers: Vec<Controller> = match serde_json::from_str(&decompressed) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!(error = ?e, "Error deserializing JSON from Redis");
+                    continue;
+                }
+            };
+
+            let vnas_controllers: Vec<&Controller> = controllers
+                .iter()
+                .filter(|c| is_active_vnas_controller(c))
+                .collect();
+
+            if vnas_controllers.is_empty() {
+                if let Ok(Some(new_pms)) = update_all_artccs_in_db(&db_pool, false).await {
+                    vnas_positions = new_pms
+                }
+            } else if let Err(e) =
+                process_datafeed(vnas_controllers, &vnas_positions, &db_pool).await
+            {
+                warn!(error = ?e, "Error processing datafeed")
+            }
+
+            if let Err(e) = rsmq
+                .delete_message(shared::DATAFEED_QUEUE_NAME, &message.id)
+                .await
+            {
+                warn!(error = ?e, "Error deleting message in Redis");
+            }
+        } else {
+            warn!("Message was None")
+        }
+    }
+}
+
 async fn initialize_rsmq(queue_name: &str) -> Result<Rsmq, RsmqError> {
     let connection_options = RsmqOptions {
         host: "localhost".to_string(),
@@ -66,6 +173,19 @@ async fn initialize_rsmq(queue_name: &str) -> Result<Rsmq, RsmqError> {
     }
 
     Ok(rsmq)
+}
+
+async fn initialize_db(connection_string: &str) -> Result<Pool<Postgres>, DbInitError> {
+    // Create Db connection pool
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(connection_string)
+        .await?;
+
+    // Run any new migrations
+    sqlx::migrate!("./migrations").run(&pool).await?;
+
+    Ok(pool)
 }
 
 fn should_update_artcc(new_fetched_artcc: &ArtccRoot, existing_db_artccs: &[Artcc]) -> bool {
@@ -133,103 +253,11 @@ async fn update_all_artccs_in_db(
     Ok(None)
 }
 
-async fn initialize_db(connection_string: &str) -> Result<Pool<Postgres>, DbInitError> {
-    // Create Db connection pool
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(connection_string)
-        .await?;
-
-    // Run any new migrations
-    let migrate = sqlx::migrate!("./migrations").run(&pool).await;
-
-    if let Err(e) = migrate {
-        println!("Error {}", e)
-    }
-
-    Ok(pool)
-}
-
-#[tokio::main]
-async fn main() {
-    let subscriber = tracing_subscriber::fmt()
-        .compact()
-        .with_file(true)
-        .with_line_number(true)
-        .finish();
-
-    let x = tracing::subscriber::set_global_default(subscriber);
-
-    tracing::info!("test");
-
-    // Overall flow
-    // - Initialize DB if needed, and do initial fetch if no vNAS data fetches have been done
-    // - Initialize Redis connection
-    // - Start Redis message receive loop
-    // - With message:
-    // -    If no USA controllers online, check if last data fetch was more than 24 hours ago. If yes, fetch new data and update any ARTCCS that need updating
-    // -    If USA controllers online, process existing active sessions (keep open or close) and add new sessions if needed
-    // -    Aggregate stats
-
-    // TODO -- need to capture and return error
-    let Ok(db_pool) = initialize_db("postgres://postgres:pw@localhost/ironmic").await else {
-        panic!("Could not initialize DB connection pool")
-    };
-
-    // Initialized position matchers
-    let Ok(Some(mut position_matchers)) = update_all_artccs_in_db(&db_pool, true).await else {
-        panic!("Could not initialize DB position matchers")
-    };
-
-    // TODO -- need to capture and return error
-    let Ok(mut rsmq) = initialize_rsmq(shared::DATAFEED_QUEUE_NAME).await else {
-        panic!("Could not initialize Redis connection")
-    };
-
-    loop {
-        let msg = rsmq
-            .receive_message::<Vec<u8>>(shared::DATAFEED_QUEUE_NAME, None)
-            .await;
-
-        if let Err(e) = &msg {
-            println!("here");
-            println!("Error receiving message")
-        }
-
-        if let Some(message) = msg.unwrap() {
-            let decompressed = decompress(&message.message).unwrap(); // todo strengthen parsing safety
-
-            let controllers: Vec<Controller> = serde_json::from_str(&decompressed).unwrap(); // TODO -- strengthen parsing safety
-            let vnas_controllers: Vec<&Controller> = controllers
-                .iter()
-                .filter(|c| is_active_vnas_controller(c))
-                .collect();
-
-            if vnas_controllers.is_empty() {
-                if let Ok(Some(new_pms)) = update_all_artccs_in_db(&db_pool, false).await {
-                    position_matchers = new_pms
-                }
-            } else {
-                let x = process_datafeed(vnas_controllers, &position_matchers, &db_pool).await;
-                if let Err(e) = x {
-                    println!("{}", e)
-                }
-            }
-
-            _ = rsmq
-                .delete_message(shared::DATAFEED_QUEUE_NAME, &message.id)
-                .await;
-        }
-    }
-}
-
 async fn process_datafeed(
     datafeed_controllers: Vec<&Controller>,
     vnas_positions: &[PositionExt],
     pool: &Pool<Postgres>,
 ) -> Result<(), sqlx::Error> {
-    //let existing_active_controller_sessions = get
-
     // Get all existing active controllers in DB as vector. Convert to Hashmap
     // Get all existing position sessions in DB as vector. Convert to Hashmap
     // Get all active controllers from datafeed as vector
@@ -246,7 +274,58 @@ async fn process_datafeed(
     //      - If not tagged active, mark ended
     // Write all positions and controller sessions to DB (including active / not active state)
 
-    let mut active_controller_sessions: HashMap<_, _> = db_get_active_controller_sessions(pool)
+    let mut active = load_active_sessions(pool).await?;
+
+    for datafeed_controller in datafeed_controllers {
+        let parsed_time = DateTime::parse_from_rfc3339(&datafeed_controller.logon_time)
+            .unwrap_or(DateTime::default())
+            .to_utc();
+        let controller_key = make_controller_key(&datafeed_controller.cid.to_string(), parsed_time);
+        let position_key = &datafeed_controller.simple_callsign();
+
+        // If we have already tracked the controller, mark controller and position as active
+        if active.controller_exists(&controller_key) {
+            active.mark_controller_active_from(&controller_key, datafeed_controller);
+
+            // Find Position based on "simple callsign" (no infix) and mark as active
+            if active.position_exists(position_key) {
+                active.mark_position_active_from(position_key, datafeed_controller)
+            }
+        // We are currently tracking this position, so create new controller tracker and attach to position
+        } else if active.position_exists(position_key) {
+            let position_tracker = active.get_position(position_key).unwrap();
+
+            // There is an existing position, so create new controller session attached to it
+            if let Some(new_controller_session_tracker) = create_new_controller_session_tracker(
+                datafeed_controller,
+                vnas_positions,
+                &position_tracker.position_session,
+            ) {
+                active.insert_new_controller(new_controller_session_tracker);
+                active.mark_position_active_from(position_key, datafeed_controller);
+            }
+        // We aren't currently tracking this position or controller, so create both
+        } else if let Some(new_position_session_tracker) =
+            create_new_position_session_tracker(datafeed_controller, vnas_positions)
+        {
+            if let Some(new_controller_session_tracker) = create_new_controller_session_tracker(
+                datafeed_controller,
+                vnas_positions,
+                &new_position_session_tracker.position_session,
+            ) {
+                active.insert_new_position(new_position_session_tracker);
+                active.insert_new_controller(new_controller_session_tracker);
+            }
+        }
+    }
+
+    save_actives(pool, active).await?;
+
+    Ok(())
+}
+
+async fn load_active_sessions(pool: &Pool<Postgres>) -> Result<ActiveSessionsMap, sqlx::Error> {
+    let controllers: HashMap<_, _> = db_get_active_controller_sessions(pool)
         .await?
         .into_iter()
         .map(|c| {
@@ -257,7 +336,7 @@ async fn process_datafeed(
         })
         .collect();
 
-    let mut active_position_sessions: HashMap<_, _> = db_get_active_position_sessions(pool)
+    let positions: HashMap<_, _> = db_get_active_position_sessions(pool)
         .await?
         .into_iter()
         .map(|p| {
@@ -268,96 +347,21 @@ async fn process_datafeed(
         })
         .collect();
 
-    // TODO -- need to load all of the existing controlller sessions into position sessions
+    Ok(ActiveSessionsMap {
+        controllers,
+        positions,
+    })
+}
 
-    for datafeed_controller in datafeed_controllers {
-        let parsed_time = DateTime::parse_from_rfc3339(&datafeed_controller.logon_time)
-            .unwrap_or(DateTime::default())
-            .to_utc();
-        let controller_key = make_controller_key(&datafeed_controller.cid.to_string(), parsed_time);
-
-        if let Some(controller_session_tracker) =
-            active_controller_sessions.get_mut(&controller_key)
-        {
-            controller_session_tracker.mark_active_from(datafeed_controller);
-
-            // Find Position based on "simple callsign" (no infix) and mark as active
-            if let Some(position_session_tracker) =
-                active_position_sessions.get_mut(&datafeed_controller.simple_callsign())
-            {
-                position_session_tracker.mark_active_from(datafeed_controller);
-            }
-        } else {
-            // TODO -- see if there is position linked to this simple callsign. If not, create one that we can attach new controller session to. Add to position hashmap and mark active
-
-            if let Some(position_session_tracker) =
-                active_position_sessions.get_mut(&datafeed_controller.simple_callsign())
-            {
-                // There is an existing position, so create new controller session attached to it
-
-                if let Some(new_controller_session_tracker) = create_new_controller_session_tracker(
-                    datafeed_controller,
-                    vnas_positions,
-                    &position_session_tracker.position_session,
-                ) {
-                    active_controller_sessions.insert(
-                        make_controller_key(
-                            &new_controller_session_tracker
-                                .controller_session
-                                .cid
-                                .to_string(),
-                            new_controller_session_tracker.controller_session.start_time,
-                        ),
-                        new_controller_session_tracker,
-                    );
-
-                    position_session_tracker.mark_active_from(datafeed_controller);
-                }
-            } else {
-                // TODO -- create position session and controller session and add
-                if let Some(new_position_session_tracker) =
-                    create_new_position_session_tracker(datafeed_controller, vnas_positions)
-                {
-                    if let Some(new_controller_session_tracker) =
-                        create_new_controller_session_tracker(
-                            datafeed_controller,
-                            vnas_positions,
-                            &new_position_session_tracker.position_session,
-                        )
-                    {
-                        active_position_sessions.insert(
-                            new_position_session_tracker
-                                .position_session
-                                .position_simple_callsign
-                                .to_owned(),
-                            new_position_session_tracker,
-                        );
-
-                        active_controller_sessions.insert(
-                            make_controller_key(
-                                &new_controller_session_tracker
-                                    .controller_session
-                                    .cid
-                                    .to_string(),
-                                new_controller_session_tracker.controller_session.start_time,
-                            ),
-                            new_controller_session_tracker,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    for mut p in active_position_sessions.into_values() {
+async fn save_actives(pool: &Pool<Postgres>, active: ActiveSessionsMap) -> Result<(), sqlx::Error> {
+    for mut p in active.positions.into_values() {
         if !p.marked_active {
             let _ = p.try_end_session(None);
         }
         db_update_position_session(pool, &p).await?;
     }
 
-    // TODO -- iterate through hashmap and save values
-    for mut c in active_controller_sessions.into_values() {
+    for mut c in active.controllers.into_values() {
         if !c.marked_active {
             let _ = c.try_end_session(None);
         }
@@ -373,7 +377,7 @@ fn create_new_controller_session_tracker(
     assoc_position: &PositionSession,
 ) -> Option<ControllerSessionTracker> {
     let position_id =
-        single_or_no_match(vnas_positions, datafeed_controller).map(|pm| pm.position.id.clone());
+        single_or_no_match(vnas_positions, datafeed_controller).map(|p| p.position.id.clone());
 
     if let (Ok(start_time), Ok(last_updated)) = (
         DateTime::parse_from_rfc3339(&datafeed_controller.logon_time),
@@ -389,6 +393,7 @@ fn create_new_controller_session_tracker(
             position_id,
             position_simple_callsign: assoc_position.position_simple_callsign.to_owned(),
             connected_callsign: datafeed_controller.callsign.to_owned(),
+            connected_frequency: datafeed_controller.frequency.to_owned(),
             position_session_id: assoc_position.id,
             position_session_is_active: assoc_position.is_active,
         };
@@ -398,6 +403,11 @@ fn create_new_controller_session_tracker(
             marked_active: true,
         })
     } else {
+        warn!(
+            start_time = datafeed_controller.logon_time,
+            last_updated = datafeed_controller.last_updated,
+            "Could not parse time from strings"
+        );
         None
     }
 }
@@ -446,13 +456,28 @@ fn create_new_position_session_tracker(
                     marked_active: true,
                 })
             } else {
+                warn!(
+                    start_time = datafeed_controller.logon_time,
+                    last_updated = datafeed_controller.last_updated,
+                    "Could not parse time from strings"
+                );
                 None
             };
         }
-        return None;
+        info!(
+            callsign = datafeed_controller.callsign,
+            frequency = datafeed_controller.frequency,
+            "More than 1 facility found matching this connection"
+        );
+        None
+    } else {
+        info!(
+            callsign = datafeed_controller.callsign,
+            frequency = datafeed_controller.frequency,
+            "No positions found matching this connection"
+        );
+        None
     }
-
-    return None;
 }
 
 pub fn is_active_vnas_controller(c: &Controller) -> bool {

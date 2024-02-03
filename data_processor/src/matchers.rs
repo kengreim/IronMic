@@ -27,10 +27,10 @@ pub fn all_matches<'a>(
     matchers: &'a [PositionExt],
     controller: &Controller,
 ) -> Option<Vec<&'a PositionExt>> {
-    let x: Vec<&PositionExt> = matchers.iter().filter(|m| m.is_match(controller)).collect();
-    if x.is_empty() {
+    let positions: Vec<&PositionExt> = matchers.iter().filter(|m| m.is_match(controller)).collect();
+    if positions.is_empty() {
         None
     } else {
-        Some(x)
+        Some(positions)
     }
 }

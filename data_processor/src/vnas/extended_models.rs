@@ -13,15 +13,15 @@ pub trait AllFacilities {
     ) -> Vec<FacilityWithTreeInfo>;
 }
 
+pub trait AllPositions {
+    fn all_positions(&self) -> Vec<Position>;
+    fn all_positions_with_parents(&self) -> Vec<PositionExt>;
+}
+
 pub struct FacilityWithTreeInfo {
     pub facility: Facility,
     pub parent_facility: Option<Facility>,
     pub artcc_root: ArtccRoot,
-}
-
-pub trait AllPositions {
-    fn all_positions(&self) -> Vec<Position>;
-    fn all_positions_with_parents(&self) -> Vec<PositionExt>;
 }
 
 impl ArtccRoot {

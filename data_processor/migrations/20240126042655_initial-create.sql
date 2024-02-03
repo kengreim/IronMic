@@ -52,6 +52,7 @@ create table if not exists controller_sessions (
     position_id text,
     position_simple_callsign text not null,
     connected_callsign text not null,
+    connected_frequency text not null,
     position_session_id uuid not null,
     position_session_is_active boolean not null,
     primary key (id, is_active),
