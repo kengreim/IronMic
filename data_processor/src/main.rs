@@ -24,7 +24,7 @@ use std::io::{Error, Read};
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::subscriber::SetGlobalDefaultError;
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, instrument, trace, warn};
 use uuid::Uuid;
 use vatsim_utils::models::Controller;
 
@@ -34,15 +34,15 @@ mod session_trackers;
 mod vnas;
 
 #[derive(Debug, thiserror::Error)]
-enum DbInitError {
+enum InitError {
     #[error("error with database")]
-    DbError(#[from] sqlx::Error),
+    Database(#[from] sqlx::Error),
 
     #[error("error updated vNAS data")]
-    VnasDataUpdateError(#[from] VnasDataUpdateError),
+    VnasDataUpdate(#[from] VnasDataUpdateError),
 
     #[error("could not apply migrations")]
-    MigrationError(#[from] MigrateError),
+    Migration(#[from] MigrateError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -178,7 +178,7 @@ async fn initialize_rsmq(queue_name: &str) -> Result<Rsmq, RsmqError> {
     Ok(rsmq)
 }
 
-async fn initialize_db(connection_string: &str) -> Result<Pool<Postgres>, DbInitError> {
+async fn initialize_db(connection_string: &str) -> Result<Pool<Postgres>, InitError> {
     // Create Db connection pool
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -219,6 +219,7 @@ async fn update_artcc_in_db(pool: &Pool<Postgres>, artcc: &ArtccRoot) -> Result<
     Ok(())
 }
 
+#[instrument(skip(pool))]
 async fn update_all_artccs_in_db(
     pool: &Pool<Postgres>,
     force_update: bool,
