@@ -5,11 +5,11 @@ use crate::database::queries::{
     db_update_position_session, db_update_vnas_artcc, db_update_vnas_facility,
     db_update_vnas_position,
 };
-use crate::matchers::{all_matches, PositionMatcher};
+use crate::matchers::all_matches;
 use crate::session_trackers::{ControllerSessionTracker, PositionSessionTracker};
-use crate::vnas::api::VnasApi;
+use crate::vnas::api::{VnasApi, VnasApiError};
 use crate::vnas::api_dtos::ArtccRoot;
-use crate::vnas::extended_models::{AllPositions, Callsign};
+use crate::vnas::extended_models::{AllPositions, Callsign, PositionWithParentFacility};
 use chrono::{DateTime, Utc};
 use flate2::read::DeflateDecoder;
 use futures::future::join_all;
@@ -45,8 +45,8 @@ enum VnasDataUpdateError {
     #[error("error with database")]
     DbError(#[from] sqlx::Error),
 
-    #[error("could not fetch data with reqwest")]
-    ReqwestError(#[from] reqwest::Error),
+    #[error("could not fetch datat")]
+    ApiError(#[from] VnasApiError),
 }
 
 async fn initialize_rsmq(queue_name: &str) -> Result<Rsmq, RsmqError> {
@@ -100,7 +100,7 @@ async fn update_artcc_in_db(pool: &Pool<Postgres>, artcc: &ArtccRoot) -> Result<
 async fn update_all_artccs_in_db(
     pool: &Pool<Postgres>,
     force_update: bool,
-) -> Result<Option<Vec<PositionMatcher>>, VnasDataUpdateError> {
+) -> Result<Option<Vec<PositionWithParentFacility>>, VnasDataUpdateError> {
     // Get record of latest vNAS data fetch. Update if none or stale data (>24 hours old)
     let latest_record = db_get_latest_fetch_record(pool).await?;
 
@@ -123,10 +123,9 @@ async fn update_all_artccs_in_db(
         // Store record of vNAS data check. If any errors, log as unsuccessful
         db_insert_vnas_fetch_record(pool, !results.iter().any(|r| r.is_err())).await?;
 
-        let position_matchers: Vec<PositionMatcher> = fetched_artccs
+        let position_matchers: Vec<PositionWithParentFacility> = fetched_artccs
             .iter()
             .flat_map(|f| f.all_positions_with_parents())
-            .map(PositionMatcher::from)
             .collect();
 
         return Ok(Some(position_matchers));
@@ -154,6 +153,16 @@ async fn initialize_db(connection_string: &str) -> Result<Pool<Postgres>, DbInit
 
 #[tokio::main]
 async fn main() {
+    let subscriber = tracing_subscriber::fmt()
+        .compact()
+        .with_file(true)
+        .with_line_number(true)
+        .finish();
+
+    let x = tracing::subscriber::set_global_default(subscriber);
+
+    tracing::info!("test");
+
     // Overall flow
     // - Initialize DB if needed, and do initial fetch if no vNAS data fetches have been done
     // - Initialize Redis connection
@@ -217,7 +226,7 @@ async fn main() {
 
 async fn process_datafeed(
     datafeed_controllers: Vec<&Controller>,
-    position_matchers: &[PositionMatcher],
+    vnas_positions: &[PositionWithParentFacility],
     pool: &Pool<Postgres>,
 ) -> Result<(), sqlx::Error> {
     //let existing_active_controller_sessions = get
@@ -289,7 +298,7 @@ async fn process_datafeed(
 
                 if let Some(new_controller_session_tracker) = create_new_controller_session_tracker(
                     datafeed_controller,
-                    position_matchers,
+                    vnas_positions,
                     &position_session_tracker.position_session,
                 ) {
                     active_controller_sessions.insert(
@@ -308,12 +317,12 @@ async fn process_datafeed(
             } else {
                 // TODO -- create position session and controller session and add
                 if let Some(new_position_session_tracker) =
-                    create_new_position_session_tracker(datafeed_controller, position_matchers)
+                    create_new_position_session_tracker(datafeed_controller, vnas_positions)
                 {
                     if let Some(new_controller_session_tracker) =
                         create_new_controller_session_tracker(
                             datafeed_controller,
-                            position_matchers,
+                            vnas_positions,
                             &new_position_session_tracker.position_session,
                         )
                     {
@@ -361,11 +370,11 @@ async fn process_datafeed(
 
 fn create_new_controller_session_tracker(
     datafeed_controller: &Controller,
-    position_matchers: &[PositionMatcher],
+    vnas_positions: &[PositionWithParentFacility],
     assoc_position: &PositionSession,
 ) -> Option<ControllerSessionTracker> {
     let position_id =
-        single_or_no_match(position_matchers, datafeed_controller).map(|pm| pm.position.id.clone());
+        single_or_no_match(vnas_positions, datafeed_controller).map(|pm| pm.position.id.clone());
 
     if let (Ok(start_time), Ok(last_updated)) = (
         DateTime::parse_from_rfc3339(&datafeed_controller.logon_time),
@@ -396,10 +405,10 @@ fn create_new_controller_session_tracker(
 
 fn create_new_position_session_tracker(
     datafeed_controller: &Controller,
-    position_matchers: &[PositionMatcher],
+    vnas_positions: &[PositionWithParentFacility],
 ) -> Option<PositionSessionTracker> {
     // First check if we can match on at least one position
-    if let Some(possible_positions) = all_matches(position_matchers, datafeed_controller) {
+    if let Some(possible_positions) = all_matches(vnas_positions, datafeed_controller) {
         // Create hashmap of possible matches. If all matches are from same facility, continue
         let facility_hashmap: HashMap<_, _> = possible_positions
             .into_iter()

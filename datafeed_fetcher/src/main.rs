@@ -4,10 +4,19 @@ use rsmq_async::{Rsmq, RsmqConnection, RsmqOptions};
 use std::io::{Error, Write};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
+use tracing::dispatcher::SetGlobalDefaultError;
 use vatsim_utils::live_api::Vatsim;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), SetGlobalDefaultError> {
+    let subscriber = tracing_subscriber::fmt()
+        .compact()
+        .with_file(true)
+        .with_line_number(true)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)?;
+
     // Set up VATSIM Datafeed
     let mut last_datafeed_update = String::new();
     let api = Vatsim::new().await.unwrap();

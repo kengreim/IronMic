@@ -1,5 +1,6 @@
 use super::api_dtos::{ArtccRoot, Facility, Position};
 use regex::{Error, Regex};
+use std::num::ParseFloatError;
 use vatsim_utils::models::Controller;
 
 pub trait AllFacilities {
@@ -106,6 +107,7 @@ fn map_positions_with_parent(facility: &Facility) -> Vec<PositionWithParentFacil
         .map(|p| PositionWithParentFacility {
             parent_facility: facility.clone(),
             position: p.clone(),
+            regex: p.build_match_regex().unwrap(),
         })
         .collect()
 }
@@ -113,6 +115,29 @@ fn map_positions_with_parent(facility: &Facility) -> Vec<PositionWithParentFacil
 pub struct PositionWithParentFacility {
     pub parent_facility: Facility,
     pub position: Position,
+    pub regex: Regex,
+}
+
+impl PositionWithParentFacility {
+    pub fn is_match(&self, controller: &Controller) -> bool {
+        self.regex.is_match(&controller.callsign)
+            && if let Ok(b) = self.is_freq_match(&controller.frequency) {
+                b
+            } else {
+                dbg!("Error parsing VATSIM freq {}", &controller.frequency);
+                false
+            }
+    }
+
+    fn is_freq_match(&self, vatsim_freq_str: &str) -> Result<bool, ParseFloatError> {
+        let vatsim_freq_f = vatsim_freq_str.parse::<f64>();
+        if let Ok(f) = vatsim_freq_f {
+            let vatsim_freq_i64 = (f * 1e6).round() as i64;
+            Ok(self.position.frequency == vatsim_freq_i64)
+        } else {
+            Err(vatsim_freq_f.unwrap_err())
+        }
+    }
 }
 
 pub trait Callsign {
