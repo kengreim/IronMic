@@ -56,7 +56,7 @@ pub async fn db_update_controller_session(
         sqlx::query(
             r"
         insert into controller_sessions (id, start_time, end_time, last_updated, is_active, cid, position_id, position_simple_callsign, connected_callsign, connected_frequency, position_session_id, position_session_is_active)
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         on conflict (id, is_active) do update set
             end_time = excluded.end_time,
             last_updated = excluded.last_updated,

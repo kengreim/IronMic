@@ -36,7 +36,7 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
         ns: "rsmq".to_string(),
     };
 
-    let mut rsmq = match initialize_rsmq(connection_options, false).await {
+    let mut rsmq = match initialize_rsmq(connection_options, true).await {
         Ok(rsmq) => rsmq,
         Err(e) => {
             error!(error = ?e, "RSMQ could not be initialized");

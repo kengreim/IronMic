@@ -21,8 +21,10 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::io::{Error, Read};
+use std::time::Duration;
+use tokio::time::sleep;
 use tracing::subscriber::SetGlobalDefaultError;
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 use vatsim_utils::models::Controller;
 
@@ -150,7 +152,8 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
                 warn!(error = ?e, "Error deleting message in Redis");
             }
         } else {
-            warn!("Message was None")
+            trace!("No message received from queue, sleeping");
+            sleep(Duration::from_secs(1)).await
         }
     }
 }
