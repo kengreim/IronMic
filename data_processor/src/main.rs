@@ -323,7 +323,7 @@ async fn process_datafeed(
         }
     }
 
-    save_actives(pool, active).await?;
+    save_all_sessions(pool, active).await?;
 
     Ok(())
 }
@@ -357,7 +357,10 @@ async fn load_active_sessions(pool: &Pool<Postgres>) -> Result<ActiveSessionsMap
     })
 }
 
-async fn save_actives(pool: &Pool<Postgres>, active: ActiveSessionsMap) -> Result<(), sqlx::Error> {
+async fn save_all_sessions(
+    pool: &Pool<Postgres>,
+    active: ActiveSessionsMap,
+) -> Result<(), sqlx::Error> {
     for mut p in active.positions.into_values() {
         if !p.marked_active {
             let _ = p.try_end_session(None);
