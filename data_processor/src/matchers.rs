@@ -1,6 +1,7 @@
 use crate::vnas::extended_models::PositionExt;
 use vatsim_utils::models::Controller;
 
+#[allow(dead_code)]
 pub fn single_or_no_match<'a>(
     matchers: &'a [PositionExt],
     controller: &Controller,

@@ -1,4 +1,6 @@
+use crate::vnas::extended_models::PositionExt;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -14,6 +16,30 @@ pub struct Artcc {
     pub last_updated: DateTime<Utc>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct VnasPositionInfo {
+    pub id: String,
+    pub name: String,
+    pub radio_name: String,
+    pub callsign: String,
+    pub frequency: i32,
+    pub starred: bool,
+}
+
+impl From<&PositionExt> for VnasPositionInfo {
+    fn from(value: &PositionExt) -> Self {
+        let p = &value.position;
+        VnasPositionInfo {
+            id: p.id.to_owned(),
+            name: p.name.to_owned(),
+            radio_name: p.radio_name.to_owned(),
+            callsign: p.callsign.to_owned(),
+            frequency: p.frequency as i32,
+            starred: p.starred,
+        }
+    }
+}
+
 #[derive(Debug, sqlx::FromRow, Clone)]
 pub struct ControllerSession {
     pub id: Uuid,
@@ -22,7 +48,7 @@ pub struct ControllerSession {
     pub last_updated: DateTime<Utc>,
     pub is_active: bool,
     pub cid: i32,
-    pub position_id: Option<String>,
+    pub assoc_vnas_positions: Option<sqlx::types::Json<Vec<VnasPositionInfo>>>,
     pub position_simple_callsign: String,
     pub connected_callsign: String,
     pub connected_frequency: String,

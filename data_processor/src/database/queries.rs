@@ -55,7 +55,7 @@ pub async fn db_update_controller_session(
     if c.marked_active {
         sqlx::query(
             r"
-        insert into controller_sessions (id, start_time, end_time, last_updated, is_active, cid, position_id, position_simple_callsign, connected_callsign, connected_frequency, position_session_id, position_session_is_active)
+        insert into controller_sessions (id, start_time, end_time, last_updated, is_active, cid, assoc_vnas_positions, position_simple_callsign, connected_callsign, connected_frequency, position_session_id, position_session_is_active)
         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         on conflict (id, is_active) do update set
             end_time = excluded.end_time,
@@ -68,7 +68,7 @@ pub async fn db_update_controller_session(
             .bind(c.controller_session.last_updated)
             .bind(c.controller_session.is_active)
             .bind(c.controller_session.cid)
-            .bind(&c.controller_session.position_id)
+            .bind(&c.controller_session.assoc_vnas_positions)
             .bind(&c.controller_session.position_simple_callsign)
             .bind(&c.controller_session.connected_callsign)
             .bind(&c.controller_session.connected_frequency)
@@ -101,8 +101,8 @@ pub async fn db_update_vnas_position(
 ) -> Result<PgQueryResult, Error> {
     sqlx::query(
     r"
-        insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, parent_facility_id, last_updated)
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, starred, parent_facility_id, last_updated)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         on conflict (id) do update set
             name = excluded.name,
             radio_name = excluded.radio_name,
@@ -112,6 +112,7 @@ pub async fn db_update_vnas_position(
             callsign_suffix = excluded.callsign_suffix,
             callsign_without_infix = excluded.callsign_without_infix,
             frequency = excluded.frequency,
+            starred = excluded.starred,
             parent_facility_id = excluded.parent_facility_id,
             last_updated = excluded.last_updated;
         ")
@@ -124,6 +125,7 @@ pub async fn db_update_vnas_position(
         .bind(p.position.callsign_suffix())
         .bind(format!("{}_{}", &p.position.callsign_prefix(), &p.position.callsign_suffix()))
         .bind(p.position.frequency)
+        .bind(p.position.starred)
         .bind(&p.parent_facility.id)
         .bind(artcc.last_updated_at)
         .execute(pool)

@@ -22,6 +22,7 @@ create table if not exists positions (
     callsign_suffix text not null,
     callsign_without_infix text not null,
     frequency integer not null,
+    starred bool not null,
     parent_facility_id text references facilities (id),
     last_updated timestamptz not null
 );
@@ -49,7 +50,7 @@ create table if not exists controller_sessions (
     last_updated timestamptz not null,
     is_active boolean not null,
     cid integer not null,
-    position_id text,
+    assoc_vnas_positions json,
     position_simple_callsign text not null,
     connected_callsign text not null,
     connected_frequency text not null,

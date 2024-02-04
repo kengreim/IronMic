@@ -1,11 +1,11 @@
-use crate::database::models::{Artcc, ControllerSession, PositionSession};
+use crate::database::models::{Artcc, ControllerSession, PositionSession, VnasPositionInfo};
 use crate::database::queries::{
     db_get_active_controller_sessions, db_get_active_position_sessions, db_get_all_artccs,
     db_get_latest_fetch_record, db_insert_vnas_fetch_record, db_update_controller_session,
     db_update_position_session, db_update_vnas_artcc, db_update_vnas_facility,
     db_update_vnas_position,
 };
-use crate::matchers::{all_matches, single_or_no_match};
+use crate::matchers::all_matches;
 use crate::session_trackers::{
     ActiveSessionsMap, ControllerSessionTracker, PositionSessionTracker,
 };
@@ -18,6 +18,7 @@ use futures::future::join_all;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
 use sqlx::migrate::MigrateError;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::io::{Error, Read};
@@ -204,16 +205,25 @@ fn should_update_artcc(new_fetched_artcc: &ArtccRoot, existing_db_artccs: &[Artc
 
 async fn update_artcc_in_db(pool: &Pool<Postgres>, artcc: &ArtccRoot) -> Result<(), sqlx::Error> {
     // Insert or update Artcc root
-    db_update_vnas_artcc(pool, artcc).await?;
+    if let Err(e) = db_update_vnas_artcc(pool, artcc).await {
+        warn!(error = ?e, "Error updating ARTCCs in database");
+        return Err(e);
+    }
 
     // Insert or update all Facilities in Artcc
     for f in artcc.all_facilities_with_info() {
-        db_update_vnas_facility(pool, &f).await?;
+        if let Err(e) = db_update_vnas_facility(pool, &f).await {
+            warn!(error = ?e, facility_name = f.facility.name, "Error updating Facility in database");
+            return Err(e);
+        }
     }
 
     // Insert or update all Positions in Artcc
     for p in artcc.all_positions_with_parents() {
-        db_update_vnas_position(pool, &p, artcc).await?;
+        if let Err(e) = db_update_vnas_position(pool, &p, artcc).await {
+            warn!(error = ?e, position_name = p.position.name, "Error updating Position in database");
+            return Err(e);
+        }
     }
 
     Ok(())
@@ -383,8 +393,10 @@ fn create_new_controller_session_tracker(
     vnas_positions: &[PositionExt],
     assoc_position: &PositionSession,
 ) -> Option<ControllerSessionTracker> {
-    let position_id =
-        single_or_no_match(vnas_positions, datafeed_controller).map(|p| p.position.id.clone());
+    let assoc_vnas_positions: Option<Json<Vec<VnasPositionInfo>>> =
+        all_matches(vnas_positions, datafeed_controller)
+            .map(|m| m.into_iter().map(VnasPositionInfo::from).collect())
+            .map(Json);
 
     if let (Ok(start_time), Ok(last_updated)) = (
         DateTime::parse_from_rfc3339(&datafeed_controller.logon_time),
@@ -397,7 +409,7 @@ fn create_new_controller_session_tracker(
             last_updated: last_updated.to_utc(),
             is_active: true,
             cid: datafeed_controller.cid as i32,
-            position_id,
+            assoc_vnas_positions,
             position_simple_callsign: assoc_position.position_simple_callsign.to_owned(),
             connected_callsign: datafeed_controller.callsign.to_owned(),
             connected_frequency: datafeed_controller.frequency.to_owned(),
