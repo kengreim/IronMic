@@ -13,7 +13,7 @@ create table if not exists facilities (
 );
 
 create table if not exists positions (
-    id text primary key,
+    id text not null,
     name text not null,
     radio_name text not null,
     callsign text not null,
@@ -24,7 +24,8 @@ create table if not exists positions (
     frequency integer not null,
     starred bool not null,
     parent_facility_id text references facilities (id),
-    last_updated timestamptz not null
+    last_updated timestamptz not null,
+    primary key (id, parent_facility_id)
 );
 
 create table if not exists position_sessions (
@@ -33,8 +34,7 @@ create table if not exists position_sessions (
     end_time timestamptz,
     last_updated timestamptz not null,
     is_active boolean not null,
-    facility_id text not null,
-    facility_name text not null,
+    assoc_vnas_facilities json,
     position_simple_callsign text not null,
     primary key (id, is_active),
     constraint if_completed_then_endtime_is_not_null check(is_active or (end_time is not null))

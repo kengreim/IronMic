@@ -13,8 +13,8 @@ pub async fn db_update_position_session(
     if p.marked_active {
         sqlx::query(
         r"
-            insert into position_sessions (id, start_time, end_time, last_updated, is_active, facility_id, facility_name, position_simple_callsign)
-            values ($1, $2, $3, $4, $5, $6, $7, $8)
+            insert into position_sessions (id, start_time, end_time, last_updated, is_active, assoc_vnas_facilities, position_simple_callsign)
+            values ($1, $2, $3, $4, $5, $6, $7)
             on conflict (id, is_active) do update set
                 end_time = excluded.end_time,
                 last_updated = excluded.last_updated,
@@ -25,8 +25,7 @@ pub async fn db_update_position_session(
             .bind(p.position_session.end_time)
             .bind(p.position_session.last_updated)
             .bind(p.position_session.is_active)
-            .bind(&p.position_session.facility_id)
-            .bind(&p.position_session.facility_name)
+            .bind(&p.position_session.assoc_vnas_facilities)
             .bind(&p.position_session.position_simple_callsign)
             .execute(pool)
             .await
@@ -103,7 +102,7 @@ pub async fn db_update_vnas_position(
     r"
         insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, starred, parent_facility_id, last_updated)
         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        on conflict (id) do update set
+        on conflict (id, parent_facility_id) do update set
             name = excluded.name,
             radio_name = excluded.radio_name,
             callsign = excluded.callsign,
@@ -113,7 +112,6 @@ pub async fn db_update_vnas_position(
             callsign_without_infix = excluded.callsign_without_infix,
             frequency = excluded.frequency,
             starred = excluded.starred,
-            parent_facility_id = excluded.parent_facility_id,
             last_updated = excluded.last_updated;
         ")
         .bind(&p.position.id)

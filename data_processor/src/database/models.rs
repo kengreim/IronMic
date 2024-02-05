@@ -68,6 +68,21 @@ impl ControllerSession {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct VnasFacilityInfo {
+    pub id: String,
+    pub name: String,
+}
+
+impl From<&PositionExt> for VnasFacilityInfo {
+    fn from(value: &PositionExt) -> Self {
+        VnasFacilityInfo {
+            id: value.parent_facility.id.to_owned(),
+            name: value.parent_facility.name.to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, sqlx::FromRow, Clone)]
 pub struct PositionSession {
     pub id: Uuid,
@@ -75,8 +90,7 @@ pub struct PositionSession {
     pub end_time: Option<DateTime<Utc>>,
     pub last_updated: DateTime<Utc>,
     pub is_active: bool,
-    pub facility_id: String,
-    pub facility_name: String,
+    pub assoc_vnas_facilities: Option<sqlx::types::Json<Vec<VnasFacilityInfo>>>,
     pub position_simple_callsign: String,
 }
 

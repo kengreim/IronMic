@@ -1,4 +1,6 @@
-use crate::database::models::{Artcc, ControllerSession, PositionSession, VnasPositionInfo};
+use crate::database::models::{
+    Artcc, ControllerSession, PositionSession, VnasFacilityInfo, VnasPositionInfo,
+};
 use crate::database::queries::{
     db_get_active_controller_sessions, db_get_active_position_sessions, db_get_all_artccs,
     db_get_latest_fetch_record, db_insert_vnas_fetch_record, db_update_controller_session,
@@ -25,7 +27,7 @@ use std::io::{Error, Read};
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::subscriber::SetGlobalDefaultError;
-use tracing::{error, info, instrument, trace, warn};
+use tracing::{error, instrument, trace, warn};
 use uuid::Uuid;
 use vatsim_utils::models::Controller;
 
@@ -435,65 +437,41 @@ fn create_new_position_session_tracker(
     datafeed_controller: &Controller,
     vnas_positions: &[PositionExt],
 ) -> Option<PositionSessionTracker> {
-    // First check if we can match on at least one position
-    if let Some(possible_positions) = all_matches(vnas_positions, datafeed_controller) {
-        // Create hashmap of possible matches. If all matches are from same facility, continue
-        let facility_hashmap: HashMap<_, _> = possible_positions
-            .into_iter()
-            .map(|p| (&p.parent_facility.id, p))
-            .collect();
-        if facility_hashmap.len() == 1 {
-            let facility_hashmap_key = facility_hashmap.keys().next().unwrap();
+    let facilities =
+        if let Some(possible_positions) = all_matches(vnas_positions, datafeed_controller) {
+            let mut f = possible_positions.clone();
+            f.dedup_by_key(|p| p.parent_facility.id.as_str());
+            Some(f)
+        } else {
+            None
+        };
 
-            return if let (Ok(start_time), Ok(last_updated)) = (
-                DateTime::parse_from_rfc3339(&datafeed_controller.logon_time),
-                DateTime::parse_from_rfc3339(&datafeed_controller.last_updated),
-            ) {
-                let new_position_session = PositionSession {
-                    id: Uuid::now_v7(),
-                    start_time: start_time.to_utc(),
-                    end_time: None,
-                    last_updated: last_updated.to_utc(),
-                    is_active: true,
-                    facility_id: facility_hashmap
-                        .get(facility_hashmap_key)
-                        .unwrap()
-                        .parent_facility
-                        .id
-                        .to_owned(),
-                    facility_name: facility_hashmap
-                        .get(facility_hashmap_key)
-                        .unwrap()
-                        .parent_facility
-                        .name
-                        .to_owned(),
-                    position_simple_callsign: datafeed_controller.simple_callsign().to_owned(),
-                };
+    let assoc_vnas_facilities: Option<Json<Vec<VnasFacilityInfo>>> =
+        facilities.map(|f| Json(f.into_iter().map(VnasFacilityInfo::from).collect()));
 
-                Some(PositionSessionTracker {
-                    position_session: new_position_session,
-                    marked_active: true,
-                })
-            } else {
-                warn!(
-                    start_time = datafeed_controller.logon_time,
-                    last_updated = datafeed_controller.last_updated,
-                    "Could not parse time from strings"
-                );
-                None
-            };
-        }
-        info!(
-            callsign = datafeed_controller.callsign,
-            frequency = datafeed_controller.frequency,
-            "More than 1 facility found matching this connection"
-        );
-        None
+    if let (Ok(start_time), Ok(last_updated)) = (
+        DateTime::parse_from_rfc3339(&datafeed_controller.logon_time),
+        DateTime::parse_from_rfc3339(&datafeed_controller.last_updated),
+    ) {
+        let new_position_session = PositionSession {
+            id: Uuid::now_v7(),
+            start_time: start_time.to_utc(),
+            end_time: None,
+            last_updated: last_updated.to_utc(),
+            is_active: true,
+            assoc_vnas_facilities,
+            position_simple_callsign: datafeed_controller.simple_callsign().to_owned(),
+        };
+
+        Some(PositionSessionTracker {
+            position_session: new_position_session,
+            marked_active: true,
+        })
     } else {
-        info!(
-            callsign = datafeed_controller.callsign,
-            frequency = datafeed_controller.frequency,
-            "No positions found matching this connection"
+        warn!(
+            start_time = datafeed_controller.logon_time,
+            last_updated = datafeed_controller.last_updated,
+            "Could not parse time from strings"
         );
         None
     }
