@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Blazor", "Blazor\Blazor.csproj", "{74EE7128-50B7-4F67-B0EC-C2D5E72446A5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OAuth.Vatsim", "OAuth.Vatsim\OAuth.Vatsim.csproj", "{C7BD0EE9-48B6-451B-9D65-B2860AE95E24}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{74EE7128-50B7-4F67-B0EC-C2D5E72446A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{74EE7128-50B7-4F67-B0EC-C2D5E72446A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{74EE7128-50B7-4F67-B0EC-C2D5E72446A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{74EE7128-50B7-4F67-B0EC-C2D5E72446A5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C7BD0EE9-48B6-451B-9D65-B2860AE95E24}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C7BD0EE9-48B6-451B-9D65-B2860AE95E24}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C7BD0EE9-48B6-451B-9D65-B2860AE95E24}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C7BD0EE9-48B6-451B-9D65-B2860AE95E24}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
