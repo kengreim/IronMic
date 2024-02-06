@@ -3,9 +3,9 @@ use crate::database::models::{
 };
 use crate::database::queries::{
     db_get_active_controller_sessions, db_get_active_position_sessions, db_get_all_artccs,
-    db_get_latest_fetch_record, db_insert_vnas_fetch_record, db_update_controller_session,
-    db_update_position_session, db_update_vnas_artcc, db_update_vnas_facility,
-    db_update_vnas_position,
+    db_get_latest_fetch_record, db_insert_datafeed_record, db_insert_vnas_fetch_record,
+    db_update_controller_session, db_update_position_session, db_update_vnas_artcc,
+    db_update_vnas_facility, db_update_vnas_position,
 };
 use crate::matchers::all_matches;
 use crate::session_trackers::{
@@ -333,11 +333,6 @@ async fn process_datafeed(
         } else if active.position_exists(&position_key) {
             let position_tracker = active.get_position(&position_key).unwrap();
 
-            // info!(
-            //     "Already tracking {}",
-            //     &position_tracker.position_session.position_simple_callsign
-            // );
-
             // There is an existing position, so create new controller session attached to it
             if let Some(new_controller_session_tracker) = create_new_controller_session_tracker(
                 datafeed_controller,
@@ -351,12 +346,6 @@ async fn process_datafeed(
                     datafeed_controller,
                     datafeed_timestamp,
                 );
-
-                // info!(
-                //     "Creating new controller for {} and CID {}",
-                //     &position_tracker.position_session.position_simple_callsign,
-                //     &new_controller_session_tracker.controller_session.cid
-                // );
             }
         // We aren't currently tracking this position or controller, so create both
         } else if let Some(new_position_session_tracker) = create_new_position_session_tracker(
@@ -382,7 +371,7 @@ async fn process_datafeed(
         }
     }
 
-    save_all_sessions(pool, active).await?;
+    save_all_sessions(pool, active, datafeed_timestamp).await?;
 
     Ok(())
 }
@@ -419,7 +408,9 @@ async fn load_active_sessions(pool: &Pool<Postgres>) -> Result<ActiveSessionsMap
 async fn save_all_sessions(
     pool: &Pool<Postgres>,
     active: ActiveSessionsMap,
+    datafeed_timestamp: DateTime<Utc>,
 ) -> Result<(), sqlx::Error> {
+    let mut num_p = 0;
     for mut p in active.positions.into_values() {
         if !p.marked_active {
             let success = p.try_end_session(None);
@@ -432,8 +423,10 @@ async fn save_all_sessions(
             }
         }
         db_update_position_session(pool, &p).await?;
+        num_p += 1;
     }
 
+    let mut num_c = 0;
     for mut c in active.controllers.into_values() {
         if !c.marked_active {
             let success = c.try_end_session(None);
@@ -447,7 +440,10 @@ async fn save_all_sessions(
             }
         }
         db_update_controller_session(pool, &c).await?;
+        num_c += 1;
     }
+
+    db_insert_datafeed_record(pool, datafeed_timestamp, num_c, num_p).await?;
 
     Ok(())
 }

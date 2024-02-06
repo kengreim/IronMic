@@ -75,3 +75,10 @@ create table if not exists vnas_fetch_records (
     update_time timestamptz not null,
     success boolean not null
 );
+
+create table if not exists datafeed_records (
+    id integer generated always as identity primary key,
+    update timestamptz not null,
+    num_tracked_controller_sessions int not null,
+    num_tracked_position_sessions int not null
+);

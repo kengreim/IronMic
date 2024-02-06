@@ -2,7 +2,7 @@ use super::models::{Artcc, ControllerSession, PositionSession, VnasFetchRecord};
 use crate::session_trackers::{ControllerSessionTracker, PositionSessionTracker};
 use crate::vnas::api_dtos::ArtccRoot;
 use crate::vnas::extended_models::{Callsign, FacilityWithTreeInfo, PositionExt};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sqlx::postgres::PgQueryResult;
 use sqlx::{Error, Pool, Postgres};
 
@@ -228,5 +228,19 @@ pub async fn db_get_latest_fetch_record(
 pub async fn db_get_all_artccs(pool: &Pool<Postgres>) -> Result<Vec<Artcc>, Error> {
     sqlx::query_as::<_, Artcc>("select * from artccs;")
         .fetch_all(pool)
+        .await
+}
+
+pub async fn db_insert_datafeed_record(
+    pool: &Pool<Postgres>,
+    update: DateTime<Utc>,
+    num_tracked_controller_sessions: i32,
+    num_tracked_position_sessions: i32,
+) -> Result<PgQueryResult, Error> {
+    sqlx::query("insert into datafeed_records (update, num_tracked_controller_sessions, num_tracked_position_sessions) values ($1, $2, $3);")
+        .bind(update)
+        .bind(num_tracked_controller_sessions)
+        .bind(num_tracked_position_sessions)
+        .execute(pool)
         .await
 }
