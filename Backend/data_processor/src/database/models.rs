@@ -1,3 +1,4 @@
+use crate::interval_from;
 use crate::vnas::extended_models::PositionExt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,9 @@ pub struct ControllerSession {
     pub start_time: DateTime<Utc>,
     pub end_time: Option<DateTime<Utc>>,
     pub last_updated: DateTime<Utc>,
+    pub duration: sqlx::postgres::types::PgInterval,
+    pub datafeed_first: DateTime<Utc>,
+    pub datafeed_last: DateTime<Utc>,
     pub is_active: bool,
     pub cid: i32,
     pub assoc_vnas_positions: Option<sqlx::types::Json<Vec<VnasPositionInfo>>>,
@@ -63,6 +67,7 @@ impl ControllerSession {
         } else {
             self.end_time = end_time.or(Some(self.last_updated));
             self.is_active = false;
+            self.duration = interval_from(self.start_time, self.end_time.expect("None time"));
             true
         }
     }
@@ -89,6 +94,9 @@ pub struct PositionSession {
     pub start_time: DateTime<Utc>,
     pub end_time: Option<DateTime<Utc>>,
     pub last_updated: DateTime<Utc>,
+    pub duration: sqlx::postgres::types::PgInterval,
+    pub datafeed_first: DateTime<Utc>,
+    pub datafeed_last: DateTime<Utc>,
     pub is_active: bool,
     pub assoc_vnas_facilities: Option<sqlx::types::Json<Vec<VnasFacilityInfo>>>,
     pub position_simple_callsign: String,
@@ -101,6 +109,7 @@ impl PositionSession {
         } else {
             self.end_time = end_time.or(Some(self.last_updated));
             self.is_active = false;
+            self.duration = interval_from(self.start_time, self.end_time.expect("None time"));
             true
         }
     }

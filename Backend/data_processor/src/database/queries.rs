@@ -13,17 +13,21 @@ pub async fn db_update_position_session(
     if p.marked_active {
         sqlx::query(
         r"
-            insert into position_sessions (id, start_time, end_time, last_updated, is_active, assoc_vnas_facilities, position_simple_callsign)
-            values ($1, $2, $3, $4, $5, $6, $7)
+            insert into position_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, assoc_vnas_facilities, position_simple_callsign)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             on conflict (id, is_active) do update set
                 end_time = excluded.end_time,
                 last_updated = excluded.last_updated,
-                is_active = excluded.is_active;"
+                duration = excluded.duration,
+                datafeed_last = excluded.datafeed_last;"
         )
             .bind(p.position_session.id)
             .bind(p.position_session.start_time)
             .bind(p.position_session.end_time)
             .bind(p.position_session.last_updated)
+            .bind(&p.position_session.duration)
+            .bind(p.position_session.datafeed_first)
+            .bind(p.position_session.datafeed_last)
             .bind(p.position_session.is_active)
             .bind(&p.position_session.assoc_vnas_facilities)
             .bind(&p.position_session.position_simple_callsign)
@@ -35,13 +39,17 @@ pub async fn db_update_position_session(
             update position_sessions set
                 is_active = $2,
                 end_time = $3,
-                last_updated = $4
+                last_updated = $4,
+                duration = $5,
+                datafeed_last = $6
             where id = $1;",
         )
         .bind(p.position_session.id)
         .bind(p.position_session.is_active)
         .bind(p.position_session.end_time)
         .bind(p.position_session.last_updated)
+        .bind(&p.position_session.duration)
+        .bind(p.position_session.datafeed_last)
         .execute(pool)
         .await
     }
@@ -54,17 +62,21 @@ pub async fn db_update_controller_session(
     if c.marked_active {
         sqlx::query(
             r"
-        insert into controller_sessions (id, start_time, end_time, last_updated, is_active, cid, assoc_vnas_positions, position_simple_callsign, connected_callsign, connected_frequency, position_session_id, position_session_is_active)
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        insert into controller_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, cid, assoc_vnas_positions, position_simple_callsign, connected_callsign, connected_frequency, position_session_id, position_session_is_active)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         on conflict (id, is_active) do update set
             end_time = excluded.end_time,
             last_updated = excluded.last_updated,
-            is_active = excluded.is_active;
+            duration = excluded.duration,
+            datafeed_last = excluded.datafeed_last;
         ")
             .bind(c.controller_session.id)
             .bind(c.controller_session.start_time)
             .bind(c.controller_session.end_time)
             .bind(c.controller_session.last_updated)
+            .bind(&c.controller_session.duration)
+            .bind(c.controller_session.datafeed_first)
+            .bind(c.controller_session.datafeed_last)
             .bind(c.controller_session.is_active)
             .bind(c.controller_session.cid)
             .bind(&c.controller_session.assoc_vnas_positions)
@@ -81,13 +93,17 @@ pub async fn db_update_controller_session(
         update controller_sessions set
             is_active = $2,
             end_time = $3,
-            last_updated = $4
+            last_updated = $4,
+            duration = $5,
+            datafeed_last = $6
         where id = $1;",
         )
         .bind(c.controller_session.id)
         .bind(c.controller_session.is_active)
         .bind(c.controller_session.end_time)
         .bind(c.controller_session.last_updated)
+        .bind(&c.controller_session.duration)
+        .bind(c.controller_session.datafeed_last)
         .execute(pool)
         .await
     }

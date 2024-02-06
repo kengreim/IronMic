@@ -1,5 +1,5 @@
 use crate::database::models::{ControllerSession, PositionSession};
-use crate::make_controller_key;
+use crate::{interval_from, make_controller_key};
 use chrono::{DateTime, Utc};
 use std::cmp::{max, min};
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ impl PositionSessionTracker {
         }
     }
 
-    pub fn mark_active_from(&mut self, c: &Controller) {
+    pub fn mark_active_from(&mut self, c: &Controller, datafeed_update: DateTime<Utc>) {
         self.marked_active = true;
 
         if let Ok(d) = DateTime::parse_from_rfc3339(c.last_updated.as_str()) {
@@ -29,6 +29,12 @@ impl PositionSessionTracker {
         if let Ok(d) = DateTime::parse_from_rfc3339(c.logon_time.as_str()) {
             self.position_session.start_time = min(d.to_utc(), self.position_session.start_time);
         }
+
+        self.position_session.datafeed_last = datafeed_update;
+        self.position_session.duration = interval_from(
+            self.position_session.start_time,
+            self.position_session.last_updated,
+        )
     }
 
     pub fn try_end_session(&mut self, end_time: Option<DateTime<Utc>>) -> bool {
@@ -49,11 +55,17 @@ impl ControllerSessionTracker {
         }
     }
 
-    pub fn mark_active_from(&mut self, c: &Controller) {
+    pub fn mark_active_from(&mut self, c: &Controller, datafeed_update: DateTime<Utc>) {
         self.marked_active = true;
         if let Ok(d) = DateTime::parse_from_rfc3339(c.last_updated.as_str()) {
             self.controller_session.last_updated = d.to_utc()
         }
+
+        self.controller_session.datafeed_last = datafeed_update;
+        self.controller_session.duration = interval_from(
+            self.controller_session.start_time,
+            self.controller_session.last_updated,
+        )
     }
 
     pub fn try_end_session(&mut self, end_time: Option<DateTime<Utc>>) -> bool {
@@ -90,15 +102,25 @@ impl ActiveSessionsMap {
         self.positions.contains_key(key)
     }
 
-    pub fn mark_controller_active_from(&mut self, key: &str, controller: &Controller) {
+    pub fn mark_controller_active_from(
+        &mut self,
+        key: &str,
+        controller: &Controller,
+        update: DateTime<Utc>,
+    ) {
         if let Some(c) = self.controllers.get_mut(key) {
-            c.mark_active_from(controller);
+            c.mark_active_from(controller, update);
         }
     }
 
-    pub fn mark_position_active_from(&mut self, key: &str, controller: &Controller) {
+    pub fn mark_position_active_from(
+        &mut self,
+        key: &str,
+        controller: &Controller,
+        update: DateTime<Utc>,
+    ) {
         if let Some(p) = self.positions.get_mut(key) {
-            p.mark_active_from(controller);
+            p.mark_active_from(controller, update);
         }
     }
 

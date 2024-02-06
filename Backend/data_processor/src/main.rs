@@ -18,7 +18,9 @@ use chrono::{DateTime, Utc};
 use flate2::read::DeflateDecoder;
 use futures::future::join_all;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
+use shared::RedisControllersMsg;
 use sqlx::migrate::MigrateError;
+use sqlx::postgres::types::PgInterval;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
@@ -27,7 +29,7 @@ use std::io::{Error, Read};
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::subscriber::SetGlobalDefaultError;
-use tracing::{error, instrument, trace, warn};
+use tracing::{error, info, instrument, trace, warn};
 use uuid::Uuid;
 use vatsim_utils::models::Controller;
 
@@ -125,15 +127,16 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
                 }
             };
 
-            let controllers: Vec<Controller> = match serde_json::from_str(&decompressed) {
-                Ok(c) => c,
+            let msg_struct: RedisControllersMsg = match serde_json::from_str(&decompressed) {
+                Ok(m) => m,
                 Err(e) => {
                     warn!(error = ?e, "Error deserializing JSON from Redis");
                     continue;
                 }
             };
 
-            let vnas_controllers: Vec<&Controller> = controllers
+            let vnas_controllers: Vec<&Controller> = msg_struct
+                .controllers
                 .iter()
                 .filter(|c| is_active_vnas_controller(c))
                 .collect();
@@ -142,8 +145,13 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
                 if let Ok(Some(new_pms)) = update_all_artccs_in_db(&db_pool, false).await {
                     vnas_positions = new_pms
                 }
-            } else if let Err(e) =
-                process_datafeed(vnas_controllers, &vnas_positions, &db_pool).await
+            } else if let Err(e) = process_datafeed(
+                vnas_controllers,
+                msg_struct.update,
+                &vnas_positions,
+                &db_pool,
+            )
+            .await
             {
                 warn!(error = ?e, "Error processing datafeed")
             }
@@ -271,6 +279,7 @@ async fn update_all_artccs_in_db(
 
 async fn process_datafeed(
     datafeed_controllers: Vec<&Controller>,
+    datafeed_timestamp: DateTime<Utc>,
     vnas_positions: &[PositionExt],
     pool: &Pool<Postgres>,
 ) -> Result<(), sqlx::Error> {
@@ -293,45 +302,83 @@ async fn process_datafeed(
     let mut active = load_active_sessions(pool).await?;
 
     for datafeed_controller in datafeed_controllers {
-        let parsed_time = DateTime::parse_from_rfc3339(&datafeed_controller.logon_time)
-            .unwrap_or(DateTime::default())
-            .to_utc();
-        let controller_key = make_controller_key(&datafeed_controller.cid.to_string(), parsed_time);
-        let position_key = &datafeed_controller.simple_callsign();
+        let Some(controller_key) = try_make_controller_key(datafeed_controller) else {
+            warn!(
+                cid = datafeed_controller.cid,
+                login_time = datafeed_controller.logon_time,
+                callsign = datafeed_controller.callsign,
+                "Error parsing login time"
+            );
+            continue;
+        };
+        let position_key = make_position_key(datafeed_controller);
 
         // If we have already tracked the controller, mark controller and position as active
         if active.controller_exists(&controller_key) {
-            active.mark_controller_active_from(&controller_key, datafeed_controller);
+            active.mark_controller_active_from(
+                &controller_key,
+                datafeed_controller,
+                datafeed_timestamp,
+            );
 
             // Find Position based on "simple callsign" (no infix) and mark as active
-            if active.position_exists(position_key) {
-                active.mark_position_active_from(position_key, datafeed_controller)
+            if active.position_exists(&position_key) {
+                active.mark_position_active_from(
+                    &position_key,
+                    datafeed_controller,
+                    datafeed_timestamp,
+                )
             }
         // We are currently tracking this position, so create new controller tracker and attach to position
-        } else if active.position_exists(position_key) {
-            let position_tracker = active.get_position(position_key).unwrap();
+        } else if active.position_exists(&position_key) {
+            let position_tracker = active.get_position(&position_key).unwrap();
+
+            // info!(
+            //     "Already tracking {}",
+            //     &position_tracker.position_session.position_simple_callsign
+            // );
 
             // There is an existing position, so create new controller session attached to it
             if let Some(new_controller_session_tracker) = create_new_controller_session_tracker(
                 datafeed_controller,
+                datafeed_timestamp,
                 vnas_positions,
                 &position_tracker.position_session,
             ) {
                 active.insert_new_controller(new_controller_session_tracker);
-                active.mark_position_active_from(position_key, datafeed_controller);
+                active.mark_position_active_from(
+                    &position_key,
+                    datafeed_controller,
+                    datafeed_timestamp,
+                );
+
+                // info!(
+                //     "Creating new controller for {} and CID {}",
+                //     &position_tracker.position_session.position_simple_callsign,
+                //     &new_controller_session_tracker.controller_session.cid
+                // );
             }
         // We aren't currently tracking this position or controller, so create both
-        } else if let Some(new_position_session_tracker) =
-            create_new_position_session_tracker(datafeed_controller, vnas_positions)
-        {
+        } else if let Some(new_position_session_tracker) = create_new_position_session_tracker(
+            datafeed_controller,
+            datafeed_timestamp,
+            vnas_positions,
+        ) {
             if let Some(new_controller_session_tracker) = create_new_controller_session_tracker(
                 datafeed_controller,
+                datafeed_timestamp,
                 vnas_positions,
                 &new_position_session_tracker.position_session,
             ) {
                 active.insert_new_position(new_position_session_tracker);
                 active.insert_new_controller(new_controller_session_tracker);
             }
+        } else {
+            warn!(
+                connected_callsign = datafeed_controller.callsign,
+                cid = datafeed_controller.cid,
+                "Could not find or create position session tracker"
+            );
         }
     }
 
@@ -375,14 +422,29 @@ async fn save_all_sessions(
 ) -> Result<(), sqlx::Error> {
     for mut p in active.positions.into_values() {
         if !p.marked_active {
-            let _ = p.try_end_session(None);
+            let success = p.try_end_session(None);
+            if !success {
+                warn!(
+                    id = %p.position_session.id,
+                    callsign = p.position_session.position_simple_callsign,
+                    "Error while trying to end position session"
+                )
+            }
         }
         db_update_position_session(pool, &p).await?;
     }
 
     for mut c in active.controllers.into_values() {
         if !c.marked_active {
-            let _ = c.try_end_session(None);
+            let success = c.try_end_session(None);
+            if !success {
+                warn!(
+                    id = %c.controller_session.id,
+                    cid = c.controller_session.cid,
+                    callsign = c.controller_session.connected_callsign,
+                    "Error while trying to end controller session"
+                )
+            }
         }
         db_update_controller_session(pool, &c).await?;
     }
@@ -392,6 +454,7 @@ async fn save_all_sessions(
 
 fn create_new_controller_session_tracker(
     datafeed_controller: &Controller,
+    datafeed_timestamp: DateTime<Utc>,
     vnas_positions: &[PositionExt],
     assoc_position: &PositionSession,
 ) -> Option<ControllerSessionTracker> {
@@ -409,6 +472,9 @@ fn create_new_controller_session_tracker(
             start_time: start_time.to_utc(),
             end_time: None,
             last_updated: last_updated.to_utc(),
+            duration: interval_from(start_time.to_utc(), last_updated.to_utc()),
+            datafeed_first: datafeed_timestamp,
+            datafeed_last: datafeed_timestamp,
             is_active: true,
             cid: datafeed_controller.cid as i32,
             assoc_vnas_positions,
@@ -435,6 +501,7 @@ fn create_new_controller_session_tracker(
 
 fn create_new_position_session_tracker(
     datafeed_controller: &Controller,
+    datafeed_timestamp: DateTime<Utc>,
     vnas_positions: &[PositionExt],
 ) -> Option<PositionSessionTracker> {
     let facilities =
@@ -458,6 +525,9 @@ fn create_new_position_session_tracker(
             start_time: start_time.to_utc(),
             end_time: None,
             last_updated: last_updated.to_utc(),
+            duration: interval_from(start_time.to_utc(), last_updated.to_utc()),
+            datafeed_first: datafeed_timestamp,
+            datafeed_last: datafeed_timestamp,
             is_active: true,
             assoc_vnas_facilities,
             position_simple_callsign: datafeed_controller.simple_callsign().to_owned(),
@@ -490,4 +560,21 @@ fn decompress(b: &[u8]) -> Result<String, Error> {
 
 fn make_controller_key(cid: &str, time: DateTime<Utc>) -> String {
     format!("{} {}", cid, time.timestamp())
+}
+
+fn try_make_controller_key(c: &Controller) -> Option<String> {
+    if let Ok(parsed_time) = DateTime::parse_from_rfc3339(&c.logon_time) {
+        Some(format!("{} {}", c.cid, parsed_time.to_utc().timestamp()))
+    } else {
+        None
+    }
+}
+
+fn make_position_key(c: &Controller) -> String {
+    c.simple_callsign()
+}
+
+fn interval_from(start: DateTime<Utc>, end: DateTime<Utc>) -> PgInterval {
+    let d = chrono::Duration::milliseconds((end - start).num_milliseconds());
+    PgInterval::try_from(d).unwrap()
 }

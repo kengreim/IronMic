@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 serde.workspace = true
+chrono.workspace = true
+vatsim_utils.workspace = true

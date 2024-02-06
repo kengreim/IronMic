@@ -1,12 +1,15 @@
+use chrono::{DateTime, Utc};
 use flate2::write::DeflateEncoder;
 use flate2::Compression;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
+use shared::RedisControllersMsg;
 use std::io::{Error, Write};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::dispatcher::SetGlobalDefaultError;
 use tracing::{debug, error, warn};
 use vatsim_utils::live_api::Vatsim;
+use vatsim_utils::models::Controller;
 
 #[tokio::main]
 async fn main() -> Result<(), SetGlobalDefaultError> {
@@ -69,12 +72,24 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
         // Update timestamp of latest data and process datafeed
         last_datafeed_update = latest_data.general.update.clone();
 
-        let Ok(controllers) = serde_json::to_string(&latest_data.controllers) else {
-            warn!("Could not deserialize JSON from vatsim_utils");
+        // let Ok(controllers) = serde_json::to_string(&latest_data.controllers) else {
+        //     warn!("Could not deserialize JSON from vatsim_utils");
+        //     continue;
+        // };
+
+        let update_timestamp = if let Ok(update_timestamp) =
+            DateTime::parse_from_rfc3339(&latest_data.general.update_timestamp)
+        {
+            update_timestamp.to_utc()
+        } else {
+            warn!(
+                timestamp = latest_data.general.update_timestamp,
+                "Could not parse timestamp"
+            );
             continue;
         };
 
-        let Ok(compressed) = compress(&controllers) else {
+        let Ok(compressed) = compress(update_timestamp, latest_data.controllers) else {
             warn!("Could not compress");
             continue;
         };
@@ -118,8 +133,14 @@ async fn initialize_rsmq(
     Ok(rsmq)
 }
 
-fn compress(s: &str) -> Result<Vec<u8>, Error> {
+fn compress(update: DateTime<Utc>, controllers: Vec<Controller>) -> Result<Vec<u8>, Error> {
+    let msg = RedisControllersMsg {
+        update,
+        controllers,
+    };
+
     let mut e = DeflateEncoder::new(Vec::new(), Compression::default());
+    let s = serde_json::to_string(&msg)?;
     e.write_all(s.as_bytes())?;
     e.finish()
 }

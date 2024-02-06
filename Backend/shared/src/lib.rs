@@ -1,4 +1,6 @@
-use serde::Deserialize;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use vatsim_utils::models::Controller;
 
 pub const DATAFEED_QUEUE_NAME: &str = "vatsim_datafeed";
 
@@ -12,4 +14,10 @@ struct Redis {
     username: Option<String>,
     password: Option<String>,
     ns: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RedisControllersMsg {
+    pub update: DateTime<Utc>,
+    pub controllers: Vec<Controller>,
 }
