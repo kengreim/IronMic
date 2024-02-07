@@ -3,6 +3,7 @@ use flate2::write::DeflateEncoder;
 use flate2::Compression;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
 use shared::RedisControllersMsg;
+use std::cmp::max;
 use std::io::{Error, Write};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -47,6 +48,8 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
         }
     };
 
+    //let mut dup_count = 0;
+
     // Datafetcher infinite loop
     loop {
         let start = Instant::now();
@@ -61,21 +64,16 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
 
         // Unwrap and check if duplicate from last fetch
         // Safe to unwrap because checked Err case above already
-        let latest_data = latest_data_result.unwrap();
+        let latest_data = latest_data_result.expect("Error getting VATSIM API data");
 
         if latest_data.general.update == last_datafeed_update {
             debug!(time = %latest_data.general.update, "Found duplicate");
-            sleep(Duration::from_secs(1)).await;
+            sleep(Duration::from_secs(3)).await;
             continue;
         }
 
         // Update timestamp of latest data and process datafeed
         last_datafeed_update = latest_data.general.update.clone();
-
-        // let Ok(controllers) = serde_json::to_string(&latest_data.controllers) else {
-        //     warn!("Could not deserialize JSON from vatsim_utils");
-        //     continue;
-        // };
 
         let update_timestamp = if let Ok(update_timestamp) =
             DateTime::parse_from_rfc3339(&latest_data.general.update_timestamp)
@@ -100,11 +98,13 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
             .await;
         if let Err(e) = sent {
             warn!(error = ?e, "Could not send message to Redis");
-            // No continue here because at this point we want to sleep for 15 seconds
+            // No continue here because at this point we want to sleep for 5 seconds
         }
 
-        // Sleep for 15 seconds minus the time this loop took
-        let sleep_duration = Duration::from_secs(15) - (Instant::now() - start);
+        // Sleep for 5 seconds minus the time this loop took, with some protections to make sure we
+        // don't have a negative duration
+        let loop_time = Instant::now() - start;
+        let sleep_duration = Duration::from_secs(5) - max(Duration::from_secs(0), loop_time);
         debug!(?sleep_duration, "Sleeping");
         sleep(sleep_duration).await;
     }

@@ -29,7 +29,7 @@ use std::io::{Error, Read};
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::subscriber::SetGlobalDefaultError;
-use tracing::{error, info, instrument, trace, warn};
+use tracing::{error, instrument, trace, warn};
 use uuid::Uuid;
 use vatsim_utils::models::Controller;
 
@@ -118,7 +118,7 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
             continue;
         }
 
-        if let Some(message) = msg.unwrap() {
+        if let Some(message) = msg.expect("Error receiving message from Redis") {
             let decompressed = match decompress(&message.message) {
                 Ok(s) => s,
                 Err(e) => {
@@ -249,7 +249,7 @@ async fn update_all_artccs_in_db(
 
     // Update if we've never initialized DB or haven't done it in 24 hours, or we want to force update
     if latest_record.is_none()
-        || (Utc::now() - latest_record.unwrap().update_time)
+        || (Utc::now() - latest_record.expect("No vNAS Fetch Record").update_time)
             > chrono::Duration::seconds(60 * 60 * 24)
         || force_update
     {
@@ -572,5 +572,5 @@ fn make_position_key(c: &Controller) -> String {
 
 fn interval_from(start: DateTime<Utc>, end: DateTime<Utc>) -> PgInterval {
     let d = chrono::Duration::milliseconds((end - start).num_milliseconds());
-    PgInterval::try_from(d).unwrap()
+    PgInterval::try_from(d).expect("Error converting Duration to PgInterval")
 }
