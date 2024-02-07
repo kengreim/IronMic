@@ -46,6 +46,16 @@ create table if not exists position_sessions (
 create table if not exists active_position_sessions partition of position_sessions for values in (true);
 create table if not exists completed_position_sessions partition of position_sessions for values in (false);
 
+create table if not exists position_session_facility_join (
+    id integer generated always as identity primary key,
+    position_session_id uuid not null,
+    position_session_is_active bool not null,
+    facility_id text not null,
+    frozen_data jsonb,
+    foreign key (position_session_id, position_session_is_active) references position_sessions on update cascade,
+    foreign key (facility_id) references facilities on update cascade
+);
+
 create table if not exists controller_sessions (
     id uuid not null,
     start_time timestamptz not null,
@@ -66,6 +76,17 @@ create table if not exists controller_sessions (
     foreign key (position_session_id, position_session_is_active) references position_sessions on update cascade,
     constraint if_completed_then_endtime_is_not_null check(is_active or (end_time is not null))
 ) partition by list (is_active);
+
+create table if not exists controller_session_position_join (
+    id integer generated always as identity primary key,
+    controller_session_id uuid not null,
+    controller_session_is_active bool not null,
+    position_id text not null,
+    position_parent_facility_id text not null,
+    frozen_data jsonb,
+    foreign key (controller_session_id, controller_session_is_active) references controller_sessions on update cascade,
+    foreign key (position_id, position_parent_facility_id) references positions on update cascade
+);
 
 create table if not exists active_controller_sessions partition of controller_sessions for values in (true);
 create table if not exists completed_controller_sessions partition of controller_sessions for values in (false);

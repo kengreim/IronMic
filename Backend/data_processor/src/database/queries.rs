@@ -1,9 +1,11 @@
 use super::models::{Artcc, ControllerSession, PositionSession, VnasFetchRecord};
+use crate::session_trackers::ActiveSessionTrackerSource::NewlyCreated;
 use crate::session_trackers::{ControllerSessionTracker, PositionSessionTracker};
 use crate::vnas::api_dtos::ArtccRoot;
 use crate::vnas::extended_models::{Callsign, FacilityWithTreeInfo, PositionExt};
 use chrono::{DateTime, Utc};
 use sqlx::postgres::PgQueryResult;
+use sqlx::types::Json;
 use sqlx::{Error, Pool, Postgres};
 
 pub async fn db_update_position_session(
@@ -11,10 +13,10 @@ pub async fn db_update_position_session(
     p: &PositionSessionTracker,
 ) -> Result<PgQueryResult, Error> {
     if p.marked_active {
-        sqlx::query(
+        let res = sqlx::query(
         r"
-            insert into position_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, assoc_vnas_facilities, position_simple_callsign)
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            insert into position_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, position_simple_callsign)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             on conflict (id, is_active) do update set
                 end_time = excluded.end_time,
                 last_updated = excluded.last_updated,
@@ -29,10 +31,27 @@ pub async fn db_update_position_session(
             .bind(p.position_session.datafeed_first)
             .bind(p.position_session.datafeed_last)
             .bind(p.position_session.is_active)
-            .bind(&p.position_session.assoc_vnas_facilities)
             .bind(&p.position_session.position_simple_callsign)
             .execute(pool)
-            .await
+            .await;
+
+        if p.source == NewlyCreated {
+            if let Some(facilities) = &p.assoc_vnas_facilities {
+                for f in facilities {
+                    sqlx::query(r"
+                        insert into position_session_facility_join (position_session_id, position_session_is_active, facility_id, frozen_data)
+                        values ($1, $2, $3, $4);")
+                        .bind(p.position_session.id)
+                        .bind(p.marked_active)
+                        .bind(&f.id)
+                        .bind(Json(f))
+                        .execute(pool)
+                        .await?;
+                }
+            }
+        }
+
+        res
     } else {
         sqlx::query(
             r"
@@ -60,10 +79,10 @@ pub async fn db_update_controller_session(
     c: &ControllerSessionTracker,
 ) -> Result<PgQueryResult, Error> {
     if c.marked_active {
-        sqlx::query(
+        let res = sqlx::query(
             r"
-        insert into controller_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, cid, assoc_vnas_positions, position_simple_callsign, connected_callsign, connected_frequency, position_session_id, position_session_is_active)
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        insert into controller_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, cid, position_simple_callsign, connected_callsign, connected_frequency, position_session_id, position_session_is_active)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         on conflict (id, is_active) do update set
             end_time = excluded.end_time,
             last_updated = excluded.last_updated,
@@ -79,14 +98,32 @@ pub async fn db_update_controller_session(
             .bind(c.controller_session.datafeed_last)
             .bind(c.controller_session.is_active)
             .bind(c.controller_session.cid)
-            .bind(&c.controller_session.assoc_vnas_positions)
             .bind(&c.controller_session.position_simple_callsign)
             .bind(&c.controller_session.connected_callsign)
             .bind(&c.controller_session.connected_frequency)
             .bind(c.controller_session.position_session_id)
             .bind(c.controller_session.position_session_is_active)
             .execute(pool)
-            .await
+            .await;
+
+        if c.source == NewlyCreated {
+            if let Some(positions) = &c.assoc_vnas_positions {
+                for p in positions {
+                    sqlx::query(r"
+                        insert into controller_session_position_join (controller_session_id, controller_session_is_active, position_id, position_parent_facility_id, frozen_data)
+                        values ($1, $2, $3, $4, $5);")
+                        .bind(c.controller_session.id)
+                        .bind(c.marked_active)
+                        .bind(&p.id)
+                        .bind(&p.parent_facility_id)
+                        .bind(Json(p))
+                        .execute(pool)
+                        .await?;
+                }
+            }
+        }
+
+        res
     } else {
         sqlx::query(
             r"

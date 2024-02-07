@@ -8,6 +8,7 @@ use crate::database::queries::{
     db_update_vnas_facility, db_update_vnas_position,
 };
 use crate::matchers::all_matches;
+use crate::session_trackers::ActiveSessionTrackerSource::{FromDatabase, NewlyCreated};
 use crate::session_trackers::{
     ActiveSessionsMap, ControllerSessionTracker, PositionSessionTracker,
 };
@@ -22,7 +23,6 @@ use shared::RedisControllersMsg;
 use sqlx::migrate::MigrateError;
 use sqlx::postgres::types::PgInterval;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::io::{Error, Read};
@@ -383,7 +383,7 @@ async fn load_active_sessions(pool: &Pool<Postgres>) -> Result<ActiveSessionsMap
         .map(|c| {
             (
                 make_controller_key(&c.cid.to_string(), c.start_time),
-                ControllerSessionTracker::new(c),
+                ControllerSessionTracker::new(c, FromDatabase),
             )
         })
         .collect();
@@ -394,7 +394,7 @@ async fn load_active_sessions(pool: &Pool<Postgres>) -> Result<ActiveSessionsMap
         .map(|p| {
             (
                 p.position_simple_callsign.clone(),
-                PositionSessionTracker::new(p.clone()),
+                PositionSessionTracker::new(p.clone(), FromDatabase),
             )
         })
         .collect();
@@ -454,10 +454,9 @@ fn create_new_controller_session_tracker(
     vnas_positions: &[PositionExt],
     assoc_position: &PositionSession,
 ) -> Option<ControllerSessionTracker> {
-    let assoc_vnas_positions: Option<Json<Vec<VnasPositionInfo>>> =
+    let assoc_vnas_positions: Option<Vec<VnasPositionInfo>> =
         all_matches(vnas_positions, datafeed_controller)
-            .map(|m| m.into_iter().map(VnasPositionInfo::from).collect())
-            .map(Json);
+            .map(|m| m.into_iter().map(VnasPositionInfo::from).collect());
 
     if let (Ok(start_time), Ok(last_updated)) = (
         DateTime::parse_from_rfc3339(&datafeed_controller.logon_time),
@@ -473,7 +472,6 @@ fn create_new_controller_session_tracker(
             datafeed_last: datafeed_timestamp,
             is_active: true,
             cid: datafeed_controller.cid as i32,
-            assoc_vnas_positions,
             position_simple_callsign: assoc_position.position_simple_callsign.to_owned(),
             connected_callsign: datafeed_controller.callsign.to_owned(),
             connected_frequency: datafeed_controller.frequency.to_owned(),
@@ -484,6 +482,8 @@ fn create_new_controller_session_tracker(
         Some(ControllerSessionTracker {
             controller_session: new_controller_session.clone(),
             marked_active: true,
+            assoc_vnas_positions,
+            source: NewlyCreated,
         })
     } else {
         warn!(
@@ -509,8 +509,8 @@ fn create_new_position_session_tracker(
             None
         };
 
-    let assoc_vnas_facilities: Option<Json<Vec<VnasFacilityInfo>>> =
-        facilities.map(|f| Json(f.into_iter().map(VnasFacilityInfo::from).collect()));
+    let assoc_vnas_facilities: Option<Vec<VnasFacilityInfo>> =
+        facilities.map(|f| f.into_iter().map(VnasFacilityInfo::from).collect());
 
     if let (Ok(start_time), Ok(last_updated)) = (
         DateTime::parse_from_rfc3339(&datafeed_controller.logon_time),
@@ -525,13 +525,14 @@ fn create_new_position_session_tracker(
             datafeed_first: datafeed_timestamp,
             datafeed_last: datafeed_timestamp,
             is_active: true,
-            assoc_vnas_facilities,
             position_simple_callsign: datafeed_controller.simple_callsign().to_owned(),
         };
 
         Some(PositionSessionTracker {
             position_session: new_position_session,
             marked_active: true,
+            assoc_vnas_facilities,
+            source: NewlyCreated,
         })
     } else {
         warn!(

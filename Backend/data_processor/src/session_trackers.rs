@@ -1,20 +1,35 @@
-use crate::database::models::{ControllerSession, PositionSession};
+use crate::database::models::{
+    ControllerSession, PositionSession, VnasFacilityInfo, VnasPositionInfo,
+};
 use crate::{interval_from, make_controller_key};
 use chrono::{DateTime, Utc};
 use std::cmp::{max, min};
 use std::collections::HashMap;
 use vatsim_utils::models::Controller;
 
+#[derive(PartialEq)]
+pub enum ActiveSessionTrackerSource {
+    FromDatabase,
+    NewlyCreated,
+}
+
 pub struct PositionSessionTracker {
     pub position_session: PositionSession,
     pub marked_active: bool,
+    pub assoc_vnas_facilities: Option<Vec<VnasFacilityInfo>>,
+    pub source: ActiveSessionTrackerSource,
 }
 
 impl PositionSessionTracker {
-    pub fn new(position_session: PositionSession) -> PositionSessionTracker {
+    pub fn new(
+        position_session: PositionSession,
+        source: ActiveSessionTrackerSource,
+    ) -> PositionSessionTracker {
         PositionSessionTracker {
             position_session,
             marked_active: false,
+            assoc_vnas_facilities: None,
+            source,
         }
     }
 
@@ -45,13 +60,20 @@ impl PositionSessionTracker {
 pub struct ControllerSessionTracker {
     pub controller_session: ControllerSession,
     pub marked_active: bool,
+    pub assoc_vnas_positions: Option<Vec<VnasPositionInfo>>,
+    pub source: ActiveSessionTrackerSource,
 }
 
 impl ControllerSessionTracker {
-    pub fn new(controller_session: ControllerSession) -> ControllerSessionTracker {
+    pub fn new(
+        controller_session: ControllerSession,
+        source: ActiveSessionTrackerSource,
+    ) -> ControllerSessionTracker {
         ControllerSessionTracker {
             controller_session,
             marked_active: false,
+            assoc_vnas_positions: None,
+            source,
         }
     }
 

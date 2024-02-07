@@ -25,6 +25,7 @@ pub struct VnasPositionInfo {
     pub callsign: String,
     pub frequency: i32,
     pub starred: bool,
+    pub parent_facility_id: String,
 }
 
 impl From<&PositionExt> for VnasPositionInfo {
@@ -37,6 +38,7 @@ impl From<&PositionExt> for VnasPositionInfo {
             callsign: p.callsign.to_owned(),
             frequency: p.frequency as i32,
             starred: p.starred,
+            parent_facility_id: value.parent_facility.id.to_owned(),
         }
     }
 }
@@ -52,7 +54,6 @@ pub struct ControllerSession {
     pub datafeed_last: DateTime<Utc>,
     pub is_active: bool,
     pub cid: i32,
-    pub assoc_vnas_positions: Option<sqlx::types::Json<Vec<VnasPositionInfo>>>,
     pub position_simple_callsign: String,
     pub connected_callsign: String,
     pub connected_frequency: String,
@@ -98,7 +99,6 @@ pub struct PositionSession {
     pub datafeed_first: DateTime<Utc>,
     pub datafeed_last: DateTime<Utc>,
     pub is_active: bool,
-    pub assoc_vnas_facilities: Option<sqlx::types::Json<Vec<VnasFacilityInfo>>>,
     pub position_simple_callsign: String,
 }
 
