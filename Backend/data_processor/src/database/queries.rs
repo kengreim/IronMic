@@ -18,6 +18,7 @@ pub async fn db_update_position_session(
             insert into position_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, position_simple_callsign)
             values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             on conflict (id, is_active) do update set
+                start_time = excluded.start_time,
                 end_time = excluded.end_time,
                 last_updated = excluded.last_updated,
                 duration = excluded.duration,
