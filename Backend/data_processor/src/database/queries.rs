@@ -15,14 +15,15 @@ pub async fn db_update_position_session(
     if p.marked_active {
         let res = sqlx::query(
         r"
-            insert into position_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, position_simple_callsign)
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            insert into position_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, position_simple_callsign, is_cooling_down)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             on conflict (id, is_active) do update set
                 start_time = excluded.start_time,
                 end_time = excluded.end_time,
                 last_updated = excluded.last_updated,
                 duration = excluded.duration,
-                datafeed_last = excluded.datafeed_last;"
+                datafeed_last = excluded.datafeed_last,
+                is_cooling_down = excluded.is_cooling_down;"
         )
             .bind(p.position_session.id)
             .bind(p.position_session.start_time)
@@ -33,6 +34,7 @@ pub async fn db_update_position_session(
             .bind(p.position_session.datafeed_last)
             .bind(p.position_session.is_active)
             .bind(&p.position_session.position_simple_callsign)
+            .bind(p.position_session.is_cooling_down)
             .execute(pool)
             .await;
 
@@ -43,7 +45,7 @@ pub async fn db_update_position_session(
                         insert into position_session_facility_join (position_session_id, position_session_is_active, facility_id, frozen_data)
                         values ($1, $2, $3, $4);")
                         .bind(p.position_session.id)
-                        .bind(p.marked_active)
+                        .bind(p.position_session.is_active)
                         .bind(&f.id)
                         .bind(Json(f))
                         .execute(pool)
@@ -61,7 +63,8 @@ pub async fn db_update_position_session(
                 end_time = $3,
                 last_updated = $4,
                 duration = $5,
-                datafeed_last = $6
+                datafeed_last = $6,
+                is_cooling_down = $7
             where id = $1;",
         )
         .bind(p.position_session.id)
@@ -70,6 +73,7 @@ pub async fn db_update_position_session(
         .bind(p.position_session.last_updated)
         .bind(&p.position_session.duration)
         .bind(p.position_session.datafeed_last)
+        .bind(p.position_session.is_cooling_down)
         .execute(pool)
         .await
     }
@@ -82,13 +86,14 @@ pub async fn db_update_controller_session(
     if c.marked_active {
         let res = sqlx::query(
             r"
-        insert into controller_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, cid, position_simple_callsign, connected_callsign, connected_frequency, position_session_id, position_session_is_active)
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        insert into controller_sessions (id, start_time, end_time, last_updated, duration, datafeed_first, datafeed_last, is_active, cid, position_simple_callsign, connected_callsign, connected_frequency, position_session_id, position_session_is_active, is_cooling_down)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         on conflict (id, is_active) do update set
             end_time = excluded.end_time,
             last_updated = excluded.last_updated,
             duration = excluded.duration,
-            datafeed_last = excluded.datafeed_last;
+            datafeed_last = excluded.datafeed_last,
+            is_cooling_down = excluded.is_cooling_down;
         ")
             .bind(c.controller_session.id)
             .bind(c.controller_session.start_time)
@@ -104,6 +109,7 @@ pub async fn db_update_controller_session(
             .bind(&c.controller_session.connected_frequency)
             .bind(c.controller_session.position_session_id)
             .bind(c.controller_session.position_session_is_active)
+            .bind(c.controller_session.is_cooling_down)
             .execute(pool)
             .await;
 
@@ -114,7 +120,7 @@ pub async fn db_update_controller_session(
                         insert into controller_session_position_join (controller_session_id, controller_session_is_active, position_id, position_parent_facility_id, frozen_data)
                         values ($1, $2, $3, $4, $5);")
                         .bind(c.controller_session.id)
-                        .bind(c.marked_active)
+                        .bind(c.controller_session.is_active)
                         .bind(&p.id)
                         .bind(&p.parent_facility_id)
                         .bind(Json(p))
@@ -133,7 +139,8 @@ pub async fn db_update_controller_session(
             end_time = $3,
             last_updated = $4,
             duration = $5,
-            datafeed_last = $6
+            datafeed_last = $6,
+            is_cooling_down = $7
         where id = $1;",
         )
         .bind(c.controller_session.id)
@@ -142,6 +149,7 @@ pub async fn db_update_controller_session(
         .bind(c.controller_session.last_updated)
         .bind(&c.controller_session.duration)
         .bind(c.controller_session.datafeed_last)
+        .bind(c.controller_session.is_cooling_down)
         .execute(pool)
         .await
     }
@@ -156,7 +164,7 @@ pub async fn db_update_vnas_position(
     r"
         insert into positions (id, name, radio_name, callsign, callsign_prefix, callsign_infix, callsign_suffix, callsign_without_infix, frequency, starred, parent_facility_id, last_updated)
         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        on conflict (id, parent_facility_id) do update set
+        on conflict (id) do update set
             name = excluded.name,
             radio_name = excluded.radio_name,
             callsign = excluded.callsign,
@@ -166,6 +174,7 @@ pub async fn db_update_vnas_position(
             callsign_without_infix = excluded.callsign_without_infix,
             frequency = excluded.frequency,
             starred = excluded.starred,
+            parent_facility_id = excluded.parent_facility_id,
             last_updated = excluded.last_updated;
         ")
         .bind(&p.position.id)

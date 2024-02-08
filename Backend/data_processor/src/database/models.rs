@@ -1,8 +1,11 @@
 use crate::interval_from;
 use crate::vnas::extended_models::PositionExt;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use std::cmp::{max, min};
+use tracing::info;
 use uuid::Uuid;
+use vatsim_utils::models::Controller;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct VnasFetchRecord {
@@ -59,18 +62,48 @@ pub struct ControllerSession {
     pub connected_frequency: String,
     pub position_session_id: Uuid,
     pub position_session_is_active: bool,
+    pub is_cooling_down: bool,
 }
 
 impl ControllerSession {
-    pub fn try_end_session(&mut self, end_time: Option<DateTime<Utc>>) -> bool {
-        if !self.is_active {
-            false
-        } else {
-            self.end_time = end_time.or(Some(self.last_updated));
-            self.is_active = false;
+    pub fn end_session(&mut self, end_time: Option<DateTime<Utc>>) {
+        if self.is_active {
+            if !self.is_cooling_down {
+                self.end_time = end_time.or(Some(self.last_updated));
+            }
+
+            let cooldown_end = self.end_time.expect("None time") + Duration::minutes(5);
+            if Utc::now() < cooldown_end {
+                self.is_active = true;
+                self.is_cooling_down = true
+            } else {
+                self.is_active = false;
+                self.is_cooling_down = false;
+            }
+
             self.duration = interval_from(self.start_time, self.end_time.expect("None time"));
-            true
         }
+    }
+
+    pub fn mark_active_from(&mut self, c: &Controller, datafeed_update: DateTime<Utc>) {
+        self.is_active = true;
+
+        // Needed because we could have a controller that we have marked as inactive due to dropping from
+        // a datafeed, but we keep them in "cooldown active" state in the DB. If they reappear, delete the
+        // end time
+        if self.end_time.is_some() {
+            self.end_time = None;
+
+            self.is_cooling_down = false;
+            info!(?self, ?c, "Resurrecting controller session")
+        }
+
+        if let Ok(d) = DateTime::parse_from_rfc3339(c.last_updated.as_str()) {
+            self.last_updated = d.to_utc()
+        }
+
+        self.datafeed_last = datafeed_update;
+        self.duration = interval_from(self.start_time, self.last_updated)
     }
 }
 
@@ -100,17 +133,50 @@ pub struct PositionSession {
     pub datafeed_last: DateTime<Utc>,
     pub is_active: bool,
     pub position_simple_callsign: String,
+    pub is_cooling_down: bool,
 }
 
 impl PositionSession {
-    pub fn try_end_session(&mut self, end_time: Option<DateTime<Utc>>) -> bool {
-        if !self.is_active {
-            false
-        } else {
-            self.end_time = end_time.or(Some(self.last_updated));
-            self.is_active = false;
+    pub fn end_session(&mut self, end_time: Option<DateTime<Utc>>) {
+        if self.is_active {
+            if !self.is_cooling_down {
+                self.end_time = end_time.or(Some(self.last_updated));
+            }
+
+            let cooldown_end = self.end_time.expect("None time") + Duration::minutes(5);
+            if Utc::now() < cooldown_end {
+                self.is_active = true;
+                self.is_cooling_down = true
+            } else {
+                self.is_active = false;
+                self.is_cooling_down = false;
+            }
+
             self.duration = interval_from(self.start_time, self.end_time.expect("None time"));
-            true
         }
+    }
+
+    pub fn mark_active_from(&mut self, c: &Controller, datafeed_update: DateTime<Utc>) {
+        self.is_active = true;
+
+        // Needed because we could have a controller that we have marked as inactive due to dropping from
+        // a datafeed, but we keep them in "cooldown active" state in the DB. If they reappear, delete the
+        // end time
+        if self.end_time.is_some() {
+            self.end_time = None;
+            self.is_cooling_down = false;
+            info!(?self, ?c, "Resurrecting position session")
+        }
+
+        if let Ok(d) = DateTime::parse_from_rfc3339(c.last_updated.as_str()) {
+            self.last_updated = max(d.to_utc(), self.last_updated);
+        }
+
+        if let Ok(d) = DateTime::parse_from_rfc3339(c.logon_time.as_str()) {
+            self.start_time = min(d.to_utc(), self.start_time);
+        }
+
+        self.datafeed_last = datafeed_update;
+        self.duration = interval_from(self.start_time, self.last_updated)
     }
 }

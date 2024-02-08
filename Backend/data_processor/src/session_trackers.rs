@@ -1,9 +1,8 @@
 use crate::database::models::{
     ControllerSession, PositionSession, VnasFacilityInfo, VnasPositionInfo,
 };
-use crate::{interval_from, make_controller_key};
+use crate::make_controller_key;
 use chrono::{DateTime, Utc};
-use std::cmp::{max, min};
 use std::collections::HashMap;
 use vatsim_utils::models::Controller;
 
@@ -35,25 +34,11 @@ impl PositionSessionTracker {
 
     pub fn mark_active_from(&mut self, c: &Controller, datafeed_update: DateTime<Utc>) {
         self.marked_active = true;
-
-        if let Ok(d) = DateTime::parse_from_rfc3339(c.last_updated.as_str()) {
-            self.position_session.last_updated =
-                max(d.to_utc(), self.position_session.last_updated);
-        }
-
-        if let Ok(d) = DateTime::parse_from_rfc3339(c.logon_time.as_str()) {
-            self.position_session.start_time = min(d.to_utc(), self.position_session.start_time);
-        }
-
-        self.position_session.datafeed_last = datafeed_update;
-        self.position_session.duration = interval_from(
-            self.position_session.start_time,
-            self.position_session.last_updated,
-        )
+        self.position_session.mark_active_from(c, datafeed_update);
     }
 
-    pub fn try_end_session(&mut self, end_time: Option<DateTime<Utc>>) -> bool {
-        self.position_session.try_end_session(end_time)
+    pub fn end_session(&mut self, end_time: Option<DateTime<Utc>>) {
+        self.position_session.end_session(end_time)
     }
 }
 
@@ -79,19 +64,11 @@ impl ControllerSessionTracker {
 
     pub fn mark_active_from(&mut self, c: &Controller, datafeed_update: DateTime<Utc>) {
         self.marked_active = true;
-        if let Ok(d) = DateTime::parse_from_rfc3339(c.last_updated.as_str()) {
-            self.controller_session.last_updated = d.to_utc()
-        }
-
-        self.controller_session.datafeed_last = datafeed_update;
-        self.controller_session.duration = interval_from(
-            self.controller_session.start_time,
-            self.controller_session.last_updated,
-        )
+        self.controller_session.mark_active_from(c, datafeed_update);
     }
 
-    pub fn try_end_session(&mut self, end_time: Option<DateTime<Utc>>) -> bool {
-        self.controller_session.try_end_session(end_time)
+    pub fn end_session(&mut self, end_time: Option<DateTime<Utc>>) {
+        self.controller_session.end_session(end_time)
     }
 }
 
@@ -118,9 +95,27 @@ impl ActiveSessionsMap {
 
     pub fn controller_exists(&self, key: &str) -> bool {
         self.controllers.contains_key(key)
+            && !self
+                .get_controller(key)
+                .unwrap()
+                .controller_session
+                .is_cooling_down
+    }
+
+    pub fn controller_exists_including_cooldown(&self, key: &str) -> bool {
+        self.controllers.contains_key(key)
     }
 
     pub fn position_exists(&self, key: &str) -> bool {
+        self.positions.contains_key(key)
+            && !self
+                .get_position(key)
+                .unwrap()
+                .position_session
+                .is_cooling_down
+    }
+
+    pub fn position_exists_including_cooldown(&self, key: &str) -> bool {
         self.positions.contains_key(key)
     }
 
@@ -148,5 +143,9 @@ impl ActiveSessionsMap {
 
     pub fn get_position(&self, key: &str) -> Option<&PositionSessionTracker> {
         self.positions.get(key)
+    }
+
+    pub fn get_controller(&self, key: &str) -> Option<&ControllerSessionTracker> {
+        self.controllers.get(key)
     }
 }

@@ -314,7 +314,7 @@ async fn process_datafeed(
         let position_key = make_position_key(datafeed_controller);
 
         // If we have already tracked the controller, mark controller and position as active
-        if active.controller_exists(&controller_key) {
+        if active.controller_exists_including_cooldown(&controller_key) {
             active.mark_controller_active_from(
                 &controller_key,
                 datafeed_controller,
@@ -322,7 +322,7 @@ async fn process_datafeed(
             );
 
             // Find Position based on "simple callsign" (no infix) and mark as active
-            if active.position_exists(&position_key) {
+            if active.position_exists_including_cooldown(&position_key) {
                 active.mark_position_active_from(
                     &position_key,
                     datafeed_controller,
@@ -330,6 +330,7 @@ async fn process_datafeed(
                 )
             }
         // We are currently tracking this position, so create new controller tracker and attach to position
+        // Don't check for positions in cooldown state as we don't want to resurrect them with a new controller
         } else if active.position_exists(&position_key) {
             let position_tracker = active.get_position(&position_key).unwrap();
 
@@ -413,14 +414,7 @@ async fn save_all_sessions(
     let mut num_p = 0;
     for mut p in active.positions.into_values() {
         if !p.marked_active {
-            let success = p.try_end_session(None);
-            if !success {
-                warn!(
-                    id = %p.position_session.id,
-                    callsign = p.position_session.position_simple_callsign,
-                    "Error while trying to end position session"
-                )
-            }
+            p.end_session(None);
         }
         db_update_position_session(pool, &p).await?;
         num_p += 1;
@@ -429,15 +423,7 @@ async fn save_all_sessions(
     let mut num_c = 0;
     for mut c in active.controllers.into_values() {
         if !c.marked_active {
-            let success = c.try_end_session(None);
-            if !success {
-                warn!(
-                    id = %c.controller_session.id,
-                    cid = c.controller_session.cid,
-                    callsign = c.controller_session.connected_callsign,
-                    "Error while trying to end controller session"
-                )
-            }
+            c.end_session(None);
         }
         db_update_controller_session(pool, &c).await?;
         num_c += 1;
@@ -477,6 +463,7 @@ fn create_new_controller_session_tracker(
             connected_frequency: datafeed_controller.frequency.to_owned(),
             position_session_id: assoc_position.id,
             position_session_is_active: assoc_position.is_active,
+            is_cooling_down: false,
         };
 
         Some(ControllerSessionTracker {
@@ -526,6 +513,7 @@ fn create_new_position_session_tracker(
             datafeed_last: datafeed_timestamp,
             is_active: true,
             position_simple_callsign: datafeed_controller.simple_callsign().to_owned(),
+            is_cooling_down: false,
         };
 
         Some(PositionSessionTracker {
