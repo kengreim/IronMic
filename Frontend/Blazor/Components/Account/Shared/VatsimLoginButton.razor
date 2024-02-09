@@ -1,0 +1,19 @@
+﻿@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using OAuth.Vatsim
+
+<form class="form-horizontal" action="Account/PerformExternalLogin" method="post">
+    <div>
+        <AntiforgeryToken />
+        <input type="hidden" name="ReturnUrl" value="@ReturnUrl" />
+        <p>
+            <button type="submit" class="btn btn-primary" name="provider" value="@VatsimAuthenticationDefaults.AuthenticationScheme" title="Log in using your @VatsimAuthenticationDefaults.DisplayName account">@VatsimAuthenticationDefaults.DisplayName</button>
+        </p>
+    </div>
+</form>
+
+
+@code {
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+}
