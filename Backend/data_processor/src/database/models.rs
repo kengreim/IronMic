@@ -66,14 +66,19 @@ pub struct ControllerSession {
 }
 
 impl ControllerSession {
-    pub fn end_session(&mut self, end_time: Option<DateTime<Utc>>) {
+    pub fn end_session(
+        &mut self,
+        end_time: Option<DateTime<Utc>>,
+        datafeed_iteration_timestamp: Option<DateTime<Utc>>,
+    ) {
         if self.is_active {
             if !self.is_cooling_down {
                 self.end_time = end_time.or(Some(self.last_updated));
             }
 
+            let current_time = datafeed_iteration_timestamp.unwrap_or(Utc::now());
             let cooldown_end = self.end_time.expect("None time") + Duration::minutes(5);
-            if Utc::now() < cooldown_end {
+            if current_time < cooldown_end {
                 self.is_active = true;
                 self.is_cooling_down = true
             } else {
@@ -95,7 +100,7 @@ impl ControllerSession {
             self.end_time = None;
 
             self.is_cooling_down = false;
-            info!(?self, ?c, "Resurrecting controller session")
+            info!(?self, ?c, "Resurrecting controller session");
         }
 
         if let Ok(d) = DateTime::parse_from_rfc3339(c.last_updated.as_str()) {
@@ -137,14 +142,19 @@ pub struct PositionSession {
 }
 
 impl PositionSession {
-    pub fn end_session(&mut self, end_time: Option<DateTime<Utc>>) {
+    pub fn end_session(
+        &mut self,
+        end_time: Option<DateTime<Utc>>,
+        datafeed_iteration_timestamp: Option<DateTime<Utc>>,
+    ) {
         if self.is_active {
             if !self.is_cooling_down {
                 self.end_time = end_time.or(Some(self.last_updated));
             }
 
+            let current_time = datafeed_iteration_timestamp.unwrap_or(Utc::now());
             let cooldown_end = self.end_time.expect("None time") + Duration::minutes(5);
-            if Utc::now() < cooldown_end {
+            if current_time < cooldown_end {
                 self.is_active = true;
                 self.is_cooling_down = true
             } else {

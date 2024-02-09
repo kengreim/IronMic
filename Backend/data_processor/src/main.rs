@@ -3,6 +3,7 @@ use crate::database::models::{
 };
 use crate::database::queries::{
     db_get_active_controller_sessions, db_get_active_position_sessions, db_get_all_artccs,
+    db_get_cooldown_controller_sessions, db_get_cooldown_position_sessions,
     db_get_latest_fetch_record, db_insert_datafeed_record, db_insert_vnas_fetch_record,
     db_update_controller_session, db_update_position_session, db_update_vnas_artcc,
     db_update_vnas_facility, db_update_vnas_position,
@@ -314,7 +315,7 @@ async fn process_datafeed(
         let position_key = make_position_key(datafeed_controller);
 
         // If we have already tracked the controller, mark controller and position as active
-        if active.controller_exists_including_cooldown(&controller_key) {
+        if active.controller_exists(&controller_key) {
             active.mark_controller_active_from(
                 &controller_key,
                 datafeed_controller,
@@ -322,13 +323,27 @@ async fn process_datafeed(
             );
 
             // Find Position based on "simple callsign" (no infix) and mark as active
-            if active.position_exists_including_cooldown(&position_key) {
+            if active.position_exists(&position_key) {
                 active.mark_position_active_from(
                     &position_key,
                     datafeed_controller,
                     datafeed_timestamp,
                 )
             }
+        } else if active.cooldown_controller_exists(&controller_key) {
+            active.resurrect_controller_from(
+                &controller_key,
+                datafeed_controller,
+                datafeed_timestamp,
+            );
+            if active.cooldown_position_exists(&position_key) {
+                active.resurrect_position_from(
+                    &position_key,
+                    datafeed_controller,
+                    datafeed_timestamp,
+                )
+            }
+
         // We are currently tracking this position, so create new controller tracker and attach to position
         // Don't check for positions in cooldown state as we don't want to resurrect them with a new controller
         } else if active.position_exists(&position_key) {
@@ -389,7 +404,29 @@ async fn load_active_sessions(pool: &Pool<Postgres>) -> Result<ActiveSessionsMap
         })
         .collect();
 
+    let cooldown_controllers: HashMap<_, _> = db_get_cooldown_controller_sessions(pool)
+        .await?
+        .into_iter()
+        .map(|c| {
+            (
+                make_controller_key(&c.cid.to_string(), c.start_time),
+                ControllerSessionTracker::new(c, FromDatabase),
+            )
+        })
+        .collect();
+
     let positions: HashMap<_, _> = db_get_active_position_sessions(pool)
+        .await?
+        .into_iter()
+        .map(|p| {
+            (
+                p.position_simple_callsign.clone(),
+                PositionSessionTracker::new(p.clone(), FromDatabase),
+            )
+        })
+        .collect();
+
+    let cooldown_positions: HashMap<_, _> = db_get_cooldown_position_sessions(pool)
         .await?
         .into_iter()
         .map(|p| {
@@ -403,6 +440,8 @@ async fn load_active_sessions(pool: &Pool<Postgres>) -> Result<ActiveSessionsMap
     Ok(ActiveSessionsMap {
         controllers,
         positions,
+        cooldown_controllers,
+        cooldown_positions,
     })
 }
 
@@ -414,19 +453,33 @@ async fn save_all_sessions(
     let mut num_p = 0;
     for mut p in active.positions.into_values() {
         if !p.marked_active {
-            p.end_session(None);
+            p.end_session(None, Some(datafeed_timestamp));
         }
         db_update_position_session(pool, &p).await?;
         num_p += 1;
     }
 
+    for mut p in active.cooldown_positions.into_values() {
+        if !p.marked_active {
+            p.end_session(None, Some(datafeed_timestamp));
+        }
+        db_update_position_session(pool, &p).await?;
+    }
+
     let mut num_c = 0;
     for mut c in active.controllers.into_values() {
         if !c.marked_active {
-            c.end_session(None);
+            c.end_session(None, Some(datafeed_timestamp));
         }
         db_update_controller_session(pool, &c).await?;
         num_c += 1;
+    }
+
+    for mut c in active.cooldown_controllers.into_values() {
+        if !c.marked_active {
+            c.end_session(None, Some(datafeed_timestamp));
+        }
+        db_update_controller_session(pool, &c).await?;
     }
 
     db_insert_datafeed_record(pool, datafeed_timestamp, num_c, num_p).await?;

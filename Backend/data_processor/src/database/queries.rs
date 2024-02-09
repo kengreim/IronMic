@@ -240,17 +240,41 @@ pub async fn db_update_vnas_artcc(
 pub async fn db_get_active_controller_sessions(
     pool: &Pool<Postgres>,
 ) -> Result<Vec<ControllerSession>, Error> {
-    sqlx::query_as::<_, ControllerSession>("select * from active_controller_sessions;")
-        .fetch_all(pool)
-        .await
+    sqlx::query_as::<_, ControllerSession>(
+        "select * from active_controller_sessions where is_cooling_down = false;",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn db_get_cooldown_controller_sessions(
+    pool: &Pool<Postgres>,
+) -> Result<Vec<ControllerSession>, Error> {
+    sqlx::query_as::<_, ControllerSession>(
+        "select * from active_controller_sessions where is_cooling_down = true;",
+    )
+    .fetch_all(pool)
+    .await
 }
 
 pub async fn db_get_active_position_sessions(
     pool: &Pool<Postgres>,
 ) -> Result<Vec<PositionSession>, Error> {
-    sqlx::query_as::<_, PositionSession>("select * from active_position_sessions;")
-        .fetch_all(pool)
-        .await
+    sqlx::query_as::<_, PositionSession>(
+        "select * from active_position_sessions where is_cooling_down = false;",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn db_get_cooldown_position_sessions(
+    pool: &Pool<Postgres>,
+) -> Result<Vec<PositionSession>, Error> {
+    sqlx::query_as::<_, PositionSession>(
+        "select * from active_position_sessions where is_cooling_down = true;",
+    )
+    .fetch_all(pool)
+    .await
 }
 
 pub async fn db_insert_vnas_fetch_record(
