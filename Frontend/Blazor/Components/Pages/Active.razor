@@ -1,0 +1,26 @@
+﻿@page "/active"
+@using Blazor.Data.IronMic
+
+@inject IronMicRepository IronMicRepository
+<h3>active</h3>
+
+@if (Artccs is not null)
+{
+    @foreach (var active in Artccs)
+    {
+        <p>@active.ConnectedCallsign</p>
+        <p>@active.PositionSession.Duration</p>
+        <p>@active.PositionSession.Id</p>
+    }
+}
+
+
+@code {
+    public IEnumerable<ControllerSession>? Artccs;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Artccs = await IronMicRepository.GetAllActiveConnections();
+    }
+
+}

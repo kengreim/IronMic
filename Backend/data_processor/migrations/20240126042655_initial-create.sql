@@ -44,7 +44,7 @@ create table if not exists position_sessions (
 ) partition by list (is_active);
 
 create table if not exists active_position_sessions partition of position_sessions for values in (true);
-create table if not exists completed_position_sessions partition of position_sessions for values in (false);    
+create table if not exists completed_position_sessions partition of position_sessions for values in (false);
 
 create table if not exists position_session_facility_join (
     position_session_id uuid not null,

@@ -17,4 +17,6 @@ public class Position
 
     // Foreign Keyed Entity
     public Facility ParentFacility { get; set; }
+
+    public List<ControllerSession> ControllerSessions { get; set; }
 }

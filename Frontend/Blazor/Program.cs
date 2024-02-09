@@ -1,9 +1,10 @@
-using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 using Blazor.Components;
 using Blazor.Components.Account;
 using Blazor.Data;
+using Blazor.Data.IronMic;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.FluentUI.AspNetCore.Components;
 
 namespace Blazor;
@@ -41,13 +42,21 @@ public class Program
             options.UseSqlite(connectionString));
         builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
+
+        // builder.Services.AddPooledDbContextFactory<IronMicDbContext>(options =>
+        //     options.UseNpgsql(builder.Configuration.GetConnectionString("postgres")));
+
+        builder.Services.AddNpgsqlDataSource(builder.Configuration.GetConnectionString("postgres") ?? "");
+        builder.Services.AddTransient<IronMicRepository>();
+
+
         builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)
             .AddEntityFrameworkStores<ApplicationDbContext>()
             .AddSignInManager()
             .AddDefaultTokenProviders();
 
         builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
-        
+
         builder.Services.AddHttpClient();
         builder.Services.AddFluentUIComponents();
 
