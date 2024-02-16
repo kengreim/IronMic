@@ -1,0 +1,7 @@
+﻿<div class="flex w-32 flex-col border-r border-gray-200 items-end p-2 bg text-g">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

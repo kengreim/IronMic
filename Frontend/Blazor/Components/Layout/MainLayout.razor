@@ -1,19 +1,27 @@
-﻿@inherits LayoutComponentBase
+﻿@using Blazor.Components.Layout.TopNav
+@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu/>
-    </div>
+<div id="pageContainer" class="flex flex-col min-h-dvh">
+    <div id="stretchWrapper" class="grow flex flex-col">
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+        @* Top Nav *@
+        <div id="topbar" class="sticky left-0 top-0 z-40">
+            <NavMenu/>
         </div>
 
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
+        @* Main Body *@
+        <div id="main" class="flex grow items-stretch justify-center bg-gray-50">
+            <div id="mainContainer" class="flex grow max-w-screen-xl">
+                @Body
+            </div>
+        </div>
+
+        @* Footer *@
+        <div id="footer">
+
+        </div>
+
+    </div>
 </div>
 
 <div id="blazor-error-ui">

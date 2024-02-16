@@ -104,7 +104,10 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
         // Sleep for 5 seconds minus the time this loop took, with some protections to make sure we
         // don't have a negative duration
         let loop_time = Instant::now() - start;
-        let sleep_duration = Duration::from_secs(5) - max(Duration::from_secs(0), loop_time);
+        if loop_time > Duration::from_secs(4) {
+            warn!(?loop_time, "Long loop");
+        }
+        let sleep_duration = Duration::from_secs(5) - max(Duration::from_secs(4), loop_time);
         debug!(?sleep_duration, "Sleeping");
         sleep(sleep_duration).await;
     }

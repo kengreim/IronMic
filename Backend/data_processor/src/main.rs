@@ -56,7 +56,7 @@ enum VnasDataUpdateError {
     #[error("error with database")]
     DbError(#[from] sqlx::Error),
 
-    #[error("could not fetch datat")]
+    #[error("could not fetch data")]
     ApiError(#[from] VnasApiError),
 }
 

@@ -23,7 +23,7 @@ create table if not exists positions (
     callsign_without_infix text not null,
     frequency integer not null,
     starred bool not null,
-    parent_facility_id text references facilities (id),
+    parent_facility_id text not null references facilities (id),
     last_updated timestamptz not null,
     unique (id, parent_facility_id)
 );
@@ -37,8 +37,8 @@ create table if not exists position_sessions (
     datafeed_first timestamptz not null,
     datafeed_last timestamptz not null,
     is_active boolean not null,
-    position_simple_callsign text not null,
     is_cooling_down boolean not null,
+    position_simple_callsign text not null,
     primary key (id, is_active),
     constraint if_completed_then_endtime_is_not_null check(is_active or (end_time is not null))
 ) partition by list (is_active);
@@ -65,13 +65,13 @@ create table if not exists controller_sessions (
     datafeed_first timestamptz not null,
     datafeed_last timestamptz not null,
     is_active boolean not null,
+    is_cooling_down boolean not null,
     cid integer not null,
     position_simple_callsign text not null,
     connected_callsign text not null,
     connected_frequency text not null,
     position_session_id uuid not null,
     position_session_is_active boolean not null,
-    is_cooling_down boolean not null,
     primary key (id, is_active),
     foreign key (position_session_id, position_session_is_active) references position_sessions on update cascade,
     constraint if_completed_then_endtime_is_not_null check(is_active or (end_time is not null))

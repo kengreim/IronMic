@@ -1,0 +1,158 @@
+﻿@rendermode InteractiveServer
+
+@page "/top/positions/{PeriodType?}/{Period?}"
+@using Blazor.Data.IronMic
+@using Blazor.Components.Layout.SideNav
+@inject IronMicRepository IronMicRepository
+
+<div class="mx-auto flex items-stretch">
+    <SideNav>
+        <GroupHeader>Current</GroupHeader>
+        <TailwindNavLink href="/top/positions/current/day" InactiveClass="hover:text-gray-700 text-gray-600 transition-colors" ActiveClass="text-red-700">Today</TailwindNavLink>
+        <TailwindNavLink href="/top/positions/current/month" InactiveClass="hover:text-gray-700 text-gray-600 transition-colors" ActiveClass="text-red-700">This Month</TailwindNavLink>
+        <TailwindNavLink href="/top/positions/current/year" InactiveClass="hover:text-gray-700 text-gray-600 transition-colors" ActiveClass="text-red-700">This Year</TailwindNavLink>
+    </SideNav>
+</div>
+
+<div class="grow py-2 px-4">
+    <div class="inline-flex rounded-md shadow-sm" role="group">
+        <button type="button" @onclick="() => _selectedGroup = PositionGroup.All" class="px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-s-lg hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-700 focus:text-blue-700 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-blue-500 dark:focus:text-white">
+            All
+        </button>
+        <button type="button" @onclick="() => _selectedGroup = PositionGroup.DelGnd" class="px-4 py-2 text-sm font-medium text-gray-900 bg-white border-t border-r border-b border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-700 focus:text-blue-700 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-blue-500 dark:focus:text-white">
+            DEL/GND
+        </button>
+        <button type="button" @onclick="() => _selectedGroup = PositionGroup.Twr" class="px-4 py-2 text-sm font-medium text-gray-900 bg-white border-t border-r border-b border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-700 focus:text-blue-700 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-blue-500 dark:focus:text-white">
+            TWR
+        </button>
+        <button type="button" @onclick="() => _selectedGroup = PositionGroup.AppDep" class="px-4 py-2 text-sm font-medium text-gray-900 bg-white border-t border-b border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-700 focus:text-blue-700 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-blue-500 dark:focus:text-white">
+            APP/DEP
+        </button>
+        <button type="button" @onclick="() => _selectedGroup = PositionGroup.Ctr" class="px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-e-lg hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-700 focus:text-blue-700 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-blue-500 dark:focus:text-white">
+            CTR
+        </button>
+    </div>
+
+
+    <div class="relative overflow-x-auto">
+        <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+            <tr>
+                <th scope="col" class="px-6 py-3">
+                    Combined Callsign
+                </th>
+                <th scope="col" class="px-6 py-3">
+                    Total Time
+                </th>
+                @* <th scope="col" class="px-6 py-3"> *@
+                @*     % of Period *@
+                @* </th> *@
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var row in GetTableResults())
+            {
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <th scope="row" class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap dark:text-white">
+                        @row.PositionCallsign
+                    </th>
+                    <td class="px-6 py-4">
+                        @TotalTimeString(row.TotalDuration)
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+
+    @* @if (!_isValidRoute) *@
+    @* { *@
+    @*     <p>Error: not a valid time period</p> *@
+    @* } *@
+</div>
+
+@code {
+    [Parameter] public string? PeriodType { get; set; }
+    [Parameter] public string? Period { get; set; }
+
+    enum PositionGroup
+    {
+        DelGnd,
+        Twr,
+        AppDep,
+        Ctr,
+        All
+    }
+
+    private PositionGroup _selectedGroup = PositionGroup.All;
+    private IEnumerable<PositionSession> _allSessions = Enumerable.Empty<PositionSession>();
+
+    protected override void OnParametersSet()
+    {
+        PeriodType ??= "current";
+        Period ??= "day";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allSessions = await IronMicRepository.GetAllPositionSessionsSince(GetStartTime());
+    }
+
+    private static TimeSpan GetDurationSince(DateTime start, ISession session)
+    {
+        var trueStart = session.StartTime > start ? session.StartTime : start;
+        return session.EndTime is not null
+            ? (DateTime)session.EndTime - trueStart
+            : session.LastUpdated - trueStart;
+    }
+
+    private static TimeSpan GetTotalDurationSince(DateTime start, IEnumerable<ISession> sessions)
+    {
+        return sessions.Aggregate(new TimeSpan(), (current, session) => current + GetDurationSince(start, session));
+    }
+
+    private static string TotalTimeString(TimeSpan t)
+    {
+        var tHours = 24 * t.Days + t.Hours;
+        var hourString = tHours is 0 or > 1 ? "hours" : "hour";
+        var minutesString = t.Minutes is 0 or > 1 ? "minutes" : "minute";
+        return $"{tHours} {hourString} and {t.Minutes} {minutesString}";
+    }
+
+    private IEnumerable<ISession> ApplyPositionFilters(IEnumerable<ISession> all)
+    {
+        return _selectedGroup switch
+        {
+            PositionGroup.DelGnd => all.Where(s => s.PositionSimpleCallsign.EndsWith("DEL") || s.PositionSimpleCallsign.EndsWith("GND")),
+            PositionGroup.Twr => all.Where(s => s.PositionSimpleCallsign.EndsWith("TWR")),
+            PositionGroup.AppDep => all.Where(s => s.PositionSimpleCallsign.EndsWith("APP") || s.PositionSimpleCallsign.EndsWith("DEP")),
+            PositionGroup.Ctr => all.Where(s => s.PositionSimpleCallsign.EndsWith("CTR")),
+            _ => all
+        };
+    }
+
+    private DateTime GetStartTime()
+    {
+        return Period switch
+        {
+            "today" => new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, DateTime.UtcNow.Day),
+            "month" => new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1),
+            "year" => new DateTime(DateTime.UtcNow.Year, 1, 1),
+            _ => new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, DateTime.UtcNow.Day)
+        };
+    }
+
+    private record ResultRow(string PositionCallsign, TimeSpan TotalDuration, IEnumerable<ISession> PositionSessions);
+
+    private IEnumerable<ResultRow> GetTableResults(int limit = 20)
+    {
+        return ApplyPositionFilters(_allSessions)
+            .GroupBy(session => session.PositionSimpleCallsign)
+            //.Select(group => (group.K))
+            .Select(group => new ResultRow(group.Key, GetTotalDurationSince(GetStartTime(), group.ToList()), group.ToList()))
+            .OrderByDescending(row => row.TotalDuration)
+            .Take(limit);
+    }
+
+}

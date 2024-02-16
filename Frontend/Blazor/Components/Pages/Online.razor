@@ -1,0 +1,31 @@
+﻿@page "/online"
+@using Blazor.Data.IronMic
+
+@inject IronMicRepository IronMicRepository
+<h3>active</h3>
+
+<p class="accent-orange-800">test</p>
+
+<h1>@DateTime.Now</h1>
+@if (Artccs is not null)
+{
+    @foreach (var active in Artccs)
+    {
+        <p>@active.ConnectedCallsign</p>
+        <p>@active.StartTime</p>
+        <p>@active.EndTime</p>
+    }
+}
+
+
+@code {
+    public IEnumerable<ControllerSession>? Artccs;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Artccs = await IronMicRepository.GetAllActiveControllerSessions();
+        var start = DateTime.UtcNow - TimeSpan.FromHours(1);
+        //Artccs = await IronMicRepository.GetAllConnectionsSince(start);
+    }
+
+}

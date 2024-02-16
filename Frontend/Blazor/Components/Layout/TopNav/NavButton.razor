@@ -1,0 +1,16 @@
+﻿@rendermode InteractiveServer
+
+<li>
+    <TailwindNavLink href="@Href" ActiveClass="@ActiveClass" InactiveClass="@InactiveClass" aria-current="page">@ChildContent</TailwindNavLink>
+</li>
+
+@code {
+    [Parameter] public string Href { get; set; } = "";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public NavLinkMatch Match { get; set; } = NavLinkMatch.All;
+
+    private const string ActiveClass = "block py-2 px-3 md:p-0 text-white bg-blue-700 rounded md:bg-transparent md:text-red-700 md:dark:text-blue-500 dark:bg-blue-600 md:dark:bg-transparent underline decoration-red-700 decoration-2 underline-offset-4";
+    private const string InactiveClass = "block py-2 px-3 md:p-0 text-gray-900 rounded hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-red-700 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent";
+}

@@ -5,12 +5,14 @@ namespace Blazor.Data.IronMic;
 
 public class IronMicRepository(NpgsqlConnection dbConnection)
 {
-    public async Task<IEnumerable<ControllerSession>> GetAllActiveConnections()
+    public async Task<IEnumerable<ControllerSession>> GetAllActiveControllerSessions()
     {
+        const string filter = "where c.is_cooling_down = false";
+
         await dbConnection.OpenAsync();
         var result =
             await dbConnection.QueryAsync<ControllerSession, PositionSession, ControllerSession>(
-                ControllerSessionsSelectAll("active_controller_sessions", "active_position_sessions"),
+                ControllerSessionsWithFilter("active_controller_sessions", "active_position_sessions", filter),
                 (c, p) =>
                 {
                     c.PositionSession = p;
@@ -21,7 +23,7 @@ public class IronMicRepository(NpgsqlConnection dbConnection)
         return result;
     }
 
-    public async Task<IEnumerable<ControllerSession>> GetAllConnections()
+    public async Task<IEnumerable<ControllerSession>> GetAllControllerSessions()
     {
         await dbConnection.OpenAsync();
         var result =
@@ -36,7 +38,25 @@ public class IronMicRepository(NpgsqlConnection dbConnection)
         return result;
     }
 
-    public async Task<IEnumerable<PositionSession>> GetAllActivePositions()
+    public async Task<IEnumerable<ControllerSession>> GetAllControllerSessionsSince(DateTime startTime)
+    {
+        const string filter = "where c.end_time >= @StartTime or c.start_time >= @StartTime";
+
+        await dbConnection.OpenAsync();
+        var result =
+            await dbConnection.QueryAsync<ControllerSession, PositionSession, ControllerSession>(
+                ControllerSessionsWithFilter("controller_sessions", "position_sessions", filter),
+                (c, p) =>
+                {
+                    c.PositionSession = p;
+                    return c;
+                },
+                new { StartTime = startTime });
+        await dbConnection.CloseAsync();
+        return result;
+    }
+
+    public async Task<IEnumerable<PositionSession>> GetAllActivePositionSessions()
     {
         await dbConnection.OpenAsync();
         var result =
@@ -45,7 +65,7 @@ public class IronMicRepository(NpgsqlConnection dbConnection)
         return result;
     }
 
-    public async Task<IEnumerable<PositionSession>> GetAllPositions()
+    public async Task<IEnumerable<PositionSession>> GetAllPositionSessions()
     {
         await dbConnection.OpenAsync();
         var result =
@@ -53,6 +73,19 @@ public class IronMicRepository(NpgsqlConnection dbConnection)
         await dbConnection.CloseAsync();
         return result;
     }
+
+    public async Task<IEnumerable<PositionSession>> GetAllPositionSessionsSince(DateTime startTime)
+    {
+        const string filter = "where end_time >= @StartTime or start_time >= @StartTime";
+
+        await dbConnection.OpenAsync();
+        var result = await dbConnection.QueryAsync<PositionSession>(
+            PositionSessionsWithFilter("position_sessions", filter),
+            new { StartTime = startTime });
+        await dbConnection.CloseAsync();
+        return result;
+    }
+
 
     private static string ControllerSessionsSelectAll(string controllersTableName, string positionsTableName)
     {
@@ -88,6 +121,12 @@ public class IronMicRepository(NpgsqlConnection dbConnection)
                 """;
     }
 
+    private static string ControllerSessionsWithFilter(string controllersTableName, string positionsTableName,
+        string predicate)
+    {
+        return $"{ControllerSessionsSelectAll(controllersTableName, positionsTableName)} {predicate}";
+    }
+
     private static string PositionSessionsSelectAll(string tableName)
     {
         return $"""
@@ -104,5 +143,10 @@ public class IronMicRepository(NpgsqlConnection dbConnection)
                     is_cooling_down as iscoolingdown
                 from {tableName}
                 """;
+    }
+
+    private static string PositionSessionsWithFilter(string positionsTableName, string predicate)
+    {
+        return $"{PositionSessionsSelectAll(positionsTableName)} {predicate}";
     }
 }

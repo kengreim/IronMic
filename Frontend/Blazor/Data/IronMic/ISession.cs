@@ -1,6 +1,6 @@
 ﻿namespace Blazor.Data.IronMic;
 
-public class PositionSession : ISession
+public interface ISession
 {
     public Guid Id { get; set; }
     public DateTime StartTime { get; set; }
