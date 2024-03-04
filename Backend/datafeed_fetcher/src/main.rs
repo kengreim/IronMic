@@ -3,7 +3,7 @@ use flate2::write::DeflateEncoder;
 use flate2::Compression;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
 use shared::RedisControllersMsg;
-use std::cmp::max;
+use std::cmp::min;
 use std::io::{Error, Write};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -107,7 +107,7 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
         if loop_time > Duration::from_secs(4) {
             warn!(?loop_time, "Long loop");
         }
-        let sleep_duration = Duration::from_secs(5) - max(Duration::from_secs(4), loop_time);
+        let sleep_duration = Duration::from_secs(5) - min(Duration::from_secs(4), loop_time);
         debug!(?sleep_duration, "Sleeping");
         sleep(sleep_duration).await;
     }

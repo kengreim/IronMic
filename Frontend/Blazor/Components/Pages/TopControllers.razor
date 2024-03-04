@@ -1,6 +1,7 @@
 ﻿@rendermode InteractiveServer
 
 @page "/top/controllers/{PeriodType}/{Period}"
+@using Blazor.ExtensionUtilities
 @using Blazor.Data.IronMic
 @using Blazor.Components.Layout.SideNav
 @inject IronMicRepository IronMicRepository
@@ -60,7 +61,7 @@
                         @row.Cid
                     </th>
                     <td class="px-6 py-4">
-                        @TotalTimeString(row.TotalDuration)
+                        <TimeSpanString Span="@row.TotalDuration"/>
                     </td>
                     <td class="px-6 py-4">
                         @GetTopPosition(row.Sessions)?.Key
@@ -102,29 +103,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        //var today = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, DateTime.UtcNow.Day);
         _allSessions = await IronMicRepository.GetAllControllerSessionsSince(GetStartTime());
-    }
-
-    private static TimeSpan GetDurationSince(DateTime start, ISession session)
-    {
-        var trueStart = session.StartTime > start ? session.StartTime : start;
-        return session.EndTime is not null
-            ? (DateTime)session.EndTime - trueStart
-            : session.LastUpdated - trueStart;
-    }
-
-    private static TimeSpan GetTotalDurationSince(DateTime start, IEnumerable<ISession> sessions)
-    {
-        return sessions.Aggregate(new TimeSpan(), (current, session) => current + GetDurationSince(start, session));
-    }
-
-    private static string TotalTimeString(TimeSpan t)
-    {
-        var tHours = 24 * t.Days + t.Hours;
-        var hourString = tHours is 0 or > 1 ? "hours" : "hour";
-        var minutesString = t.Minutes is 0 or > 1 ? "minutes" : "minute";
-        return $"{tHours} {hourString} and {t.Minutes} {minutesString}";
     }
 
     private IEnumerable<ControllerSession> ApplyPositionFilters(IEnumerable<ControllerSession> all)
@@ -156,7 +135,7 @@
     {
         return ApplyPositionFilters(_allSessions)
             .GroupBy(s => s.Cid)
-            .Select(group => (group.Key, GetTotalDurationSince(GetStartTime(), group.ToList()), group.ToList()))
+            .Select(group => (group.Key, group.ToList().GetTotalDurationSince(GetStartTime()), group.ToList()))
             .Select(tuple => new ResultRow(tuple.Item1, tuple.Item2, tuple.Item3))
             .OrderByDescending(row => row.TotalDuration)
             .Take(limit);

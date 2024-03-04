@@ -1,0 +1,22 @@
+﻿<p>@_str</p>
+
+@code {
+    [Parameter] public TimeSpan? Span { get; set; }
+    private string _str = "";
+
+    protected override void OnParametersSet()
+    {
+        if (Span is null)
+        {
+            _str = "";
+        }
+        else
+        {
+            var tHours = 24 * Span.Value.Days + Span.Value.Hours;
+            var hourString = tHours is 0 or > 1 ? "hours" : "hour";
+            var minutesString = Span.Value.Minutes is 0 or > 1 ? "minutes" : "minute";
+            _str = $"{tHours} {hourString} and {Span.Value.Minutes} {minutesString}";
+        }
+    }
+
+}
