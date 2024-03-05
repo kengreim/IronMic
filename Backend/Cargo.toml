@@ -14,3 +14,4 @@ flate2 = "1.0.28"
 anyhow = "1.0.79"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["json"] }
+figment = { version = "0.10.14", features = ["toml", "env"] }

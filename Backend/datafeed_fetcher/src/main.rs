@@ -1,8 +1,12 @@
 use chrono::{DateTime, Utc};
+use figment::{
+    providers::{Env, Format, Toml},
+    Figment,
+};
 use flate2::write::DeflateEncoder;
 use flate2::Compression;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
-use shared::RedisControllersMsg;
+use shared::{Config, RedisControllersMsg};
 use std::cmp::min;
 use std::io::{Error, Write};
 use std::time::{Duration, Instant};
@@ -23,32 +27,43 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
 
     tracing::subscriber::set_global_default(subscriber)?;
 
+    // Set up config
+    let config = match Figment::new()
+        .merge(Toml::file("Settings.toml"))
+        .merge(Env::prefixed("STATUSA_").split("_"))
+        .extract::<Config>()
+    {
+        Ok(config) => config,
+        Err(e) => {
+            error!(error = ?e, "Configuration could not be initialized");
+            panic!("Configuration could not be initialized")
+        }
+    };
+
     // Set up VATSIM Datafeed
     let mut last_datafeed_update = String::new();
     let api = Vatsim::new()
         .await
         .expect("Could not initialize VATSIM API");
 
-    // Set up Redis Queue
+    // Set up Redis Queue based on configuration
     let connection_options = RsmqOptions {
-        host: "localhost".to_string(),
-        port: 6379,
-        db: 0,
+        host: config.redis.host,
+        port: config.redis.port,
+        db: config.redis.db,
         realtime: false,
-        username: None,
-        password: None,
-        ns: "rsmq".to_string(),
+        username: config.redis.username,
+        password: config.redis.password,
+        ns: config.redis.namespace,
     };
 
-    let mut rsmq = match initialize_rsmq(connection_options, true).await {
+    let mut rsmq = match initialize_rsmq(connection_options, config.redis.force_recreate).await {
         Ok(rsmq) => rsmq,
         Err(e) => {
             error!(error = ?e, "RSMQ could not be initialized");
             panic!("RSMQ could not be initialized")
         }
     };
-
-    //let mut dup_count = 0;
 
     // Datafetcher infinite loop
     loop {

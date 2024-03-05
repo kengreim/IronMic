@@ -15,3 +15,5 @@ flate2.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true
+figment.workspace = true
+serde = { version = "1.0.197", features = ["derive"] }

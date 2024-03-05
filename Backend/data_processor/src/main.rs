@@ -17,10 +17,12 @@ use crate::vnas::api::{VnasApi, VnasApiError};
 use crate::vnas::api_dtos::ArtccRoot;
 use crate::vnas::extended_models::{AllPositions, Callsign, PositionExt};
 use chrono::{DateTime, Utc};
+use figment::providers::{Env, Format, Toml};
+use figment::Figment;
 use flate2::read::DeflateDecoder;
 use futures::future::join_all;
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
-use shared::RedisControllersMsg;
+use shared::{Config, RedisConfig, RedisControllersMsg};
 use sqlx::migrate::MigrateError;
 use sqlx::postgres::types::PgInterval;
 use sqlx::postgres::PgPoolOptions;
@@ -71,6 +73,19 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
 
     tracing::subscriber::set_global_default(subscriber)?;
 
+    // Set up config
+    let config = match Figment::new()
+        .merge(Toml::file("Settings.toml"))
+        .merge(Env::prefixed("STATUSA_").split("_"))
+        .extract::<Config>()
+    {
+        Ok(config) => config,
+        Err(e) => {
+            error!(error = ?e, "Configuration could not be initialized");
+            panic!("Configuration could not be initialized")
+        }
+    };
+
     // Overall flow
     // - Initialize DB if needed, and do initial fetch if no vNAS data fetches have been done
     // - Initialize Redis connection
@@ -80,7 +95,7 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
     // -    If USA controllers online, process existing active sessions (keep open or close) and add new sessions if needed
     // -    Aggregate stats
 
-    let db_pool = match initialize_db("postgres://postgres:pw@localhost/ironmic").await {
+    let db_pool = match initialize_db(&config.postgres.connection_string).await {
         Ok(db_pool) => db_pool,
         Err(e) => {
             error!(error = ?e, "Could not initialize DB connection pool");
@@ -100,7 +115,7 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
         }
     };
 
-    let mut rsmq = match initialize_rsmq(shared::DATAFEED_QUEUE_NAME).await {
+    let mut rsmq = match initialize_rsmq(shared::DATAFEED_QUEUE_NAME, &config.redis).await {
         Ok(rsmq) => rsmq,
         Err(e) => {
             error!(error = ?e, "Could not initialize Redis connection");
@@ -170,15 +185,15 @@ async fn main() -> Result<(), SetGlobalDefaultError> {
     }
 }
 
-async fn initialize_rsmq(queue_name: &str) -> Result<Rsmq, RsmqError> {
+async fn initialize_rsmq(queue_name: &str, config: &RedisConfig) -> Result<Rsmq, RsmqError> {
     let connection_options = RsmqOptions {
-        host: "localhost".to_string(),
-        port: 6379,
-        db: 0,
+        host: config.host.to_string(),
+        port: config.port,
+        db: config.db,
         realtime: false,
-        username: None,
-        password: None,
-        ns: "rsmq".to_string(),
+        username: config.username.clone(),
+        password: config.password.clone(),
+        ns: config.namespace.to_string(),
     };
 
     let mut rsmq = Rsmq::new(connection_options).await?;
