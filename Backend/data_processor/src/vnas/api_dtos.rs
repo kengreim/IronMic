@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -12,6 +11,8 @@ pub struct ArtccRoot {
     pub visibility_centers: Vec<Point>,
     pub aliases_last_updated_at: DateTime<Utc>,
     pub video_maps: Vec<VideoMap>,
+    pub transceivers: Vec<Transceiver>,
+    pub auto_atc_rules: Vec<AutoAtcRule>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -63,7 +64,7 @@ pub enum BeaconCodeBankPriority {
     Tertiary,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Point {
     pub lat: f64,
     pub lon: f64,
@@ -82,7 +83,7 @@ pub struct Facility {
     pub tower_cab_configuration: Option<TowerCabConfiguration>,
     pub asdex_configuration: Option<AsdexConfiguration>,
     pub tdls_configuration: Option<TdlsConfiguration>,
-    pub flight_strips_configuration: Option<FlightStripsConfiguration2>,
+    pub flight_strips_configuration: Option<FlightStripsConfiguration>,
     pub positions: Vec<Position>,
     pub neighboring_facility_ids: Vec<String>,
     pub non_nas_facility_ids: Vec<String>,
@@ -158,6 +159,7 @@ pub struct Position {
     pub frequency: i64,
     pub stars_configuration: Option<PositionStarsConfiguration>,
     pub eram_configuration: Option<PositionEramConfiguration>,
+    pub transceiver_ids: Vec<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -253,7 +255,7 @@ pub struct FacilityStarsConfiguration {
     pub rpcs: Vec<Rpc>,
     pub primary_scratchpad_rules: Vec<ScratchpadRule>,
     pub secondary_scratchpad_rules: Vec<ScratchpadRule>,
-    pub rnav_patterns: Vec<Value>,
+    pub rnav_patterns: Vec<String>,
     #[serde(rename = "allow4CharacterScratchpad")]
     pub allow4character_scratchpad: bool,
     pub stars_handoff_ids: Vec<StarsHandoffId>,
@@ -363,36 +365,16 @@ pub struct MapGroup {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FlightStripsConfiguration2 {
-    pub strip_bays: Vec<StripBay>,
-    pub external_bays: Vec<Value>,
-    pub display_destination_airport_ids: bool,
-    pub display_barcodes: bool,
-    pub enable_arrival_strips: bool,
-    pub enable_separate_arr_dep_printers: bool,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StarsConfiguration3 {
-    pub subset: i64,
-    pub sector_id: String,
-    pub area_id: String,
-    pub color_set: String,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct FacilityEramConfiguration {
     pub nas_id: String,
     pub geo_maps: Vec<GeoMap>,
     pub emergency_checklist: Vec<String>,
     pub position_relief_checklist: Vec<String>,
-    pub internal_airports: Vec<Value>,
+    pub internal_airports: Vec<String>,
     pub beacon_code_banks: Vec<EramBeaconCodeBank>,
     pub neighboring_stars_configurations: Vec<NeighboringStarsConfiguration>,
-    pub neighboring_caats_configurations: Vec<Value>,
-    pub coordination_fixes: Vec<Value>,
+    pub neighboring_caats_configurations: Vec<NeighboringCaatsConfiguration>,
+    pub coordination_fixes: Vec<String>,
     pub reference_fixes: Vec<String>,
     pub asr_sites: Vec<AsrSite>,
     pub conflict_alert_floor: i32,
@@ -454,6 +436,14 @@ pub struct NeighboringStarsConfiguration {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NeighboringCaatsConfiguration {
+    pub id: String,
+    pub acc_id: String,
+    pub handoff_letter: String,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PositionEramConfiguration {
     pub sector_id: String,
 }
@@ -471,4 +461,87 @@ pub struct VideoMap {
     pub stars_id: Option<i16>,
     pub stars_always_visible: bool,
     pub tdm_only: bool,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Transceiver {
+    pub id: String,
+    pub name: String,
+    pub location: Point,
+    pub height_msl_meters: f64,
+    pub height_agl_meters: f64,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoAtcRule {
+    pub id: String,
+    pub name: String,
+    pub position_id: String,
+    pub exclusionary_rules: Vec<String>,
+    pub criteria: Criteria,
+    pub descent_crossing_restriction: Option<DescentCrossingRestriction>,
+    pub descend_via: Option<DescendVia>,
+    pub descent_restriction: Option<DescentRestriction>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Criteria {
+    pub route_substrings: Vec<String>,
+    pub departures: Vec<String>,
+    pub destinations: Vec<String>,
+    pub applicable_to_jets: bool,
+    pub applicable_to_turboprops: bool,
+    pub applicable_to_props: bool,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescentCrossingRestriction {
+    pub crossing_fix: String,
+    pub crossing_fix_name: String,
+    pub altitude_constraint: AltitudeConstraint,
+    pub altimeter_station: Option<AltimeterStation>,
+    pub speed_constraint: Option<SpeedConstraint>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescentRestriction {
+    pub crossing_line: Vec<Point>,
+    pub altitude_constraint: AltitudeConstraint,
+    pub altimeter_station: Option<AltimeterStation>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AltitudeConstraint {
+    pub value: i64,
+    pub constraint_type: String,
+    pub is_lufl: bool,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AltimeterStation {
+    pub station_id: String,
+    pub station_name: String,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescendVia {
+    pub crossing_line: Vec<Point>,
+    pub star_name: String,
+    pub altimeter_station: Option<AltimeterStation>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeedConstraint {
+    pub value: i64,
+    pub is_mach: bool,
+    pub constraint_type: String,
 }
