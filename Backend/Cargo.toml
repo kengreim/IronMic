@@ -4,14 +4,14 @@ resolver = "2"
 
 [workspace.dependencies]
 vatsim_utils = "0.5.0"
-rsmq_async = "8.0.2"
-serde_json = "1.0.112"
-tokio = { version = "1.35.1", features = ["rt", "rt-multi-thread", "macros"] }
-chrono = { version = "0.4.33", features = ["serde"] }
-serde = { version = "1.0.196", features = ["derive"] }
-thiserror = "1.0.56"
-flate2 = "1.0.28"
-anyhow = "1.0.79"
+rsmq_async = "11.1.0"
+serde_json = "1.0.120"
+tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread", "macros"] }
+chrono = { version = "0.4.38", features = ["serde"] }
+serde = { version = "1.0.204", features = ["derive"] }
+thiserror = "1.0.61"
+flate2 = "1.0.30"
+anyhow = "1.0.86"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["json"] }
-figment = { version = "0.10.14", features = ["toml", "env"] }
+figment = { version = "0.10.19", features = ["toml", "env"] }
